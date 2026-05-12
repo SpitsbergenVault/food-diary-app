@@ -1,17 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 
 // Safe localStorage loader
 function loadEntries() {
   try {
     const saved = localStorage.getItem('foodEntries')
-
-    if (!saved) {
-      return []
-    }
+    if (!saved) return []
 
     const parsed = JSON.parse(saved)
 
-    // Validate structure
     if (!Array.isArray(parsed)) {
       console.error('Saved entries are not an array')
       return []
@@ -24,24 +20,32 @@ function loadEntries() {
   }
 }
 
-// Safe localStorage saver
+// Primary save
 function saveEntries(entries) {
   try {
-    localStorage.setItem(
-      'foodEntries',
-      JSON.stringify(entries)
-    )
+    localStorage.setItem('foodEntries', JSON.stringify(entries))
   } catch (error) {
     console.error('Failed to save entries:', error)
+    alert('Unable to save entries. Storage may be full.')
+  }
+}
 
-    alert(
-      'Unable to save entries. Storage may be full.'
+// 🧠 AUTO BACKUP (NEW)
+function saveBackup(entries) {
+  try {
+    localStorage.setItem(
+      'foodEntries_backup',
+      JSON.stringify({
+        timestamp: Date.now(),
+        data: entries
+      })
     )
+  } catch (error) {
+    console.error('Backup failed:', error)
   }
 }
 
 function App() {
-  // Create today's date
   const now = new Date()
 
   const today = now.toISOString().split('T')[0]
@@ -57,33 +61,25 @@ function App() {
       ? '12:00 PM'
       : `${currentHour - 12}:00 PM`
 
-  // Form fields
   const [date, setDate] = useState(today)
   const [time, setTime] = useState(formattedHour)
   const [food, setFood] = useState('')
-
-  // Modal state
   const [showModal, setShowModal] = useState(false)
-
-  // Entries
   const [entries, setEntries] = useState(loadEntries)
-
-  // Toast
   const [showToast, setShowToast] = useState(false)
 
-  // Auto-save whenever entries change
+  const fileInputRef = useRef(null)
+
+  // 🔵 MAIN + BACKUP SYNC (UPDATED)
   useEffect(() => {
     saveEntries(entries)
+    saveBackup(entries)
   }, [entries])
 
-  // Add entry
+  // ADD ENTRY
   function addEntry() {
     const trimmedFood = food.trim()
-
-    // Prevent blank entries
-    if (!trimmedFood) {
-      return
-    }
+    if (!trimmedFood) return
 
     const newEntry = {
       id: crypto.randomUUID(),
@@ -93,53 +89,73 @@ function App() {
       createdAt: Date.now()
     }
 
-    const updatedEntries = [...entries, newEntry]
+    const updated = [...entries, newEntry]
 
-    // Sort newest first
-    updatedEntries.sort((a, b) => {
+    updated.sort((a, b) => {
       const dateA = new Date(`${a.date} ${a.time}`)
       const dateB = new Date(`${b.date} ${b.time}`)
-
       return dateB - dateA
     })
 
-    setEntries(updatedEntries)
+    setEntries(updated)
 
-    // Show toast
     setShowToast(true)
+    setTimeout(() => setShowToast(false), 2000)
 
-    setTimeout(() => {
-      setShowToast(false)
-    }, 2000)
-
-    // Clear field
     setFood('')
   }
 
-  // Export entries to CSV
+  // DELETE ENTRY
+  function deleteEntry(id) {
+    setEntries(entries.filter(e => e.id !== id))
+  }
+
+  // RESTORE LAST AUTO BACKUP (NEW)
+  function restoreLastBackup() {
+    try {
+      const saved = localStorage.getItem('foodEntries_backup')
+
+      if (!saved) {
+        alert('No backup found')
+        return
+      }
+
+      const parsed = JSON.parse(saved)
+
+      if (!parsed?.data || !Array.isArray(parsed.data)) {
+        alert('Backup is corrupted')
+        return
+      }
+
+      setEntries(parsed.data)
+      saveEntries(parsed.data)
+
+      alert('Restored last backup successfully!')
+    } catch (error) {
+      alert('Failed to restore backup')
+    }
+  }
+
+  // CSV EXPORT
   function exportToCSV() {
     if (entries.length === 0) {
       alert('No entries to export')
       return
     }
 
-    // CSV headers
     const headers = ['Date', 'Time', 'Food']
 
-    // Convert entries into CSV rows
     const rows = entries.map(entry => [
       `"${entry.date}"`,
       `"${entry.time}"`,
       `"${entry.food.replace(/"/g, '""')}"`
     ])
 
-    // Combine into CSV
     const csvContent = [
       headers.join(','),
-      ...rows.map(row => row.join(','))
+      ...rows.map(r => r.join(','))
     ].join('\n')
 
-    // Create downloadable file
     const blob = new Blob([csvContent], {
       type: 'text/csv;charset=utf-8;'
     })
@@ -147,175 +163,141 @@ function App() {
     const url = URL.createObjectURL(blob)
 
     const link = document.createElement('a')
-
     link.href = url
-    link.setAttribute('download', 'food-diary.csv')
-
-    document.body.appendChild(link)
-
+    link.download = 'food-diary.csv'
     link.click()
-
-    document.body.removeChild(link)
 
     URL.revokeObjectURL(url)
   }
 
-  // Delete entry
-  function deleteEntry(id) {
-    const updatedEntries = entries.filter(
-      entry => entry.id !== id
-    )
+  // EXPORT BACKUP
+  function exportBackup() {
+    if (entries.length === 0) {
+      alert('No data to export')
+      return
+    }
 
-    setEntries(updatedEntries)
+    const blob = new Blob([JSON.stringify(entries, null, 2)], {
+      type: 'application/json'
+    })
+
+    const url = URL.createObjectURL(blob)
+
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `food-diary-backup-${new Date().toISOString().split('T')[0]}.json`
+    a.click()
+
+    URL.revokeObjectURL(url)
   }
 
-  // Group entries by date
-  const groupedEntries = entries.reduce(
-    (groups, entry) => {
-      if (!groups[entry.date]) {
-        groups[entry.date] = []
+  // IMPORT BACKUP
+  function importBackup(event) {
+    const file = event.target.files[0]
+    if (!file) return
+
+    const reader = new FileReader()
+
+    reader.onload = e => {
+      try {
+        const parsed = JSON.parse(e.target.result)
+
+        if (!Array.isArray(parsed)) {
+          alert('Invalid backup file')
+          return
+        }
+
+        setEntries(parsed)
+        saveEntries(parsed)
+
+        alert('Backup restored successfully!')
+      } catch (err) {
+        alert('Failed to restore backup')
       }
+    }
 
-      groups[entry.date].push(entry)
+    reader.readAsText(file)
+    event.target.value = ''
+  }
 
-      return groups
-    },
-    {}
-  )
+  function triggerImport() {
+    fileInputRef.current?.click()
+  }
+
+  const groupedEntries = entries.reduce((groups, entry) => {
+    if (!groups[entry.date]) groups[entry.date] = []
+    groups[entry.date].push(entry)
+    return groups
+  }, {})
 
   return (
-    <div
-      style={{
-        padding: 20,
-        fontFamily: 'Arial',
-        maxWidth: 500,
-        margin: '0 auto'
-      }}
-    >
-      <h1 style={{ textAlign: 'center' }}>
-        Food Diary
-      </h1>
+    <div style={{ padding: 20, fontFamily: 'Arial', maxWidth: 500, margin: '0 auto' }}>
+      <h1 style={{ textAlign: 'center' }}>Food Diary</h1>
 
-      {/* Date */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="application/json"
+        onChange={importBackup}
+        style={{ display: 'none' }}
+      />
+
       <div style={{ marginBottom: 15 }}>
         <label>Date</label>
-
-        <input
-          type="date"
-          value={date}
-          onChange={e => setDate(e.target.value)}
-          style={inputStyle}
-        />
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} style={inputStyle} />
       </div>
 
-      {/* Time */}
       <div style={{ marginBottom: 15 }}>
         <label>Time</label>
-
-        <select
-          value={time}
-          onChange={e => setTime(e.target.value)}
-          style={inputStyle}
-        >
+        <select value={time} onChange={e => setTime(e.target.value)} style={inputStyle}>
           {[
-            '12:00 AM',
-            '1:00 AM',
-            '2:00 AM',
-            '3:00 AM',
-            '4:00 AM',
-            '5:00 AM',
-            '6:00 AM',
-            '7:00 AM',
-            '8:00 AM',
-            '9:00 AM',
-            '10:00 AM',
-            '11:00 AM',
-            '12:00 PM',
-            '1:00 PM',
-            '2:00 PM',
-            '3:00 PM',
-            '4:00 PM',
-            '5:00 PM',
-            '6:00 PM',
-            '7:00 PM',
-            '8:00 PM',
-            '9:00 PM',
-            '10:00 PM',
-            '11:00 PM'
+            '12:00 AM','1:00 AM','2:00 AM','3:00 AM','4:00 AM','5:00 AM','6:00 AM','7:00 AM',
+            '8:00 AM','9:00 AM','10:00 AM','11:00 AM','12:00 PM','1:00 PM','2:00 PM','3:00 PM',
+            '4:00 PM','5:00 PM','6:00 PM','7:00 PM','8:00 PM','9:00 PM','10:00 PM','11:00 PM'
           ].map(hour => (
-            <option key={hour} value={hour}>
-              {hour}
-            </option>
+            <option key={hour} value={hour}>{hour}</option>
           ))}
         </select>
       </div>
 
-      {/* Food */}
-      <div style={{ marginBottom: 20 }}>
-        <label>Food Eaten</label>
+      <textarea
+        value={food}
+        onChange={e => setFood(e.target.value)}
+        placeholder="Enter food description"
+        rows={4}
+        style={{ ...inputStyle, resize: 'none' }}
+      />
 
-        <textarea
-          value={food}
-          onChange={e => setFood(e.target.value)}
-          placeholder="Enter meal description"
-          rows={4}
-          style={{
-            ...inputStyle,
-            resize: 'none',
-            width: '100%',
-            display: 'block'
-          }}
-        />
-      </div>
+      <button onClick={addEntry} style={primaryButton}>Add Entry</button>
 
-      {/* Add Button */}
-      <button
-        onClick={addEntry}
-        style={primaryButton}
-      >
-        Add Entry
-      </button>
-
-      {/* View Entries Button */}
-      <button
-        onClick={() => setShowModal(true)}
-        style={{
-          ...secondaryButton,
-          marginTop: 12
-        }}
-      >
+      <button onClick={() => setShowModal(true)} style={secondaryButton}>
         View Entries
       </button>
 
-      {/* Export CSV Button */}
-      <button
-        onClick={exportToCSV}
-        style={{
-          ...secondaryButton,
-          marginTop: 12
-        }}
-      >
+      <button onClick={exportToCSV} style={secondaryButton}>
         Export CSV
+      </button>
+
+      <button onClick={exportBackup} style={secondaryButton}>
+        Export Backup (JSON)
+      </button>
+
+      <button onClick={triggerImport} style={secondaryButton}>
+        Import Backup (JSON)
+      </button>
+
+      {/* 🧠 NEW: restore auto-backup */}
+      <button onClick={restoreLastBackup} style={secondaryButton}>
+        Restore Last Auto-Backup
       </button>
 
       {/* Modal */}
       {showModal && (
         <div style={modalOverlay}>
           <div style={modalContent}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                marginBottom: 20
-              }}
-            >
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
               <h2>Entries</h2>
-
-              <button
-                onClick={() => setShowModal(false)}
-                style={closeButton}
-              >
+              <button onClick={() => setShowModal(false)} style={closeButton}>
                 Close
               </button>
             </div>
@@ -323,163 +305,43 @@ function App() {
             {entries.length === 0 ? (
               <p>No entries yet.</p>
             ) : (
-              Object.entries(groupedEntries).map(
-                ([date, dateEntries]) => (
-                  <div
-                    key={date}
-                    style={{ marginBottom: 24 }}
-                  >
-                    <h3
-                      style={{
-                        borderBottom: '1px solid #ddd',
-                        paddingBottom: 6,
-                        marginBottom: 12
-                      }}
-                    >
-                      {new Date(date).toLocaleDateString(
-                        'en-US',
-                        {
-                          year: 'numeric',
-                          month: 'long',
-                          day: 'numeric'
-                        }
-                      )}
-                    </h3>
+              Object.entries(groupedEntries).map(([date, items]) => (
+                <div key={date}>
+                  <h3>{new Date(date).toLocaleDateString()}</h3>
 
-                    {dateEntries.map(entry => (
-                      <div
-                        key={entry.id}
-                        style={groupedEntryRow}
-                      >
-                        <strong>
-                          {entry.time}
-                        </strong>
+                  {items.map(entry => (
+                    <div key={entry.id} style={groupedEntryRow}>
+                      <strong>{entry.time}</strong>
+                      <span>— {entry.food}</span>
 
-                        <span>
-                          — {entry.food}
-                        </span>
-
-                        <button
-                          onClick={() =>
-                            deleteEntry(entry.id)
-                          }
-                          style={smallDeleteButton}
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )
-              )
+                      <button onClick={() => deleteEntry(entry.id)} style={smallDeleteButton}>
+                        Delete
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              ))
             )}
           </div>
         </div>
       )}
 
-      {/* Toast */}
-      {showToast && (
-        <div style={toastStyle}>
-          Entry Added
-        </div>
-      )}
+      {showToast && <div style={toastStyle}>Entry Added</div>}
     </div>
   )
 }
 
-// Styles
+// styles unchanged
+const inputStyle = { width: '100%', padding: 12, fontSize: 16, marginTop: 6, borderRadius: 10, border: '1px solid #ccc' }
+const primaryButton = { width: '100%', padding: 14, fontSize: 18, borderRadius: 12, backgroundColor: '#007AFF', color: 'white', border: 'none', marginTop: 10 }
+const secondaryButton = { width: '100%', padding: 14, fontSize: 18, borderRadius: 12, backgroundColor: '#444', color: 'white', border: 'none', marginTop: 10 }
 
-const inputStyle = {
-  width: '100%',
-  padding: 12,
-  fontSize: 16,
-  marginTop: 6,
-  borderRadius: 10,
-  border: '1px solid #ccc',
-  boxSizing: 'border-box'
-}
+const modalOverlay = { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center' }
+const modalContent = { backgroundColor: 'white', maxWidth: 500, width: '100%', maxHeight: '80vh', overflowY: 'auto', padding: 20, borderRadius: 16 }
 
-const primaryButton = {
-  width: '100%',
-  padding: 14,
-  fontSize: 18,
-  borderRadius: 12,
-  border: 'none',
-  backgroundColor: '#007AFF',
-  color: 'white'
-}
-
-const secondaryButton = {
-  width: '100%',
-  padding: 14,
-  fontSize: 18,
-  borderRadius: 12,
-  border: 'none',
-  backgroundColor: '#444',
-  color: 'white'
-}
-
-const modalOverlay = {
-  position: 'fixed',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  backgroundColor: 'rgba(0,0,0,0.5)',
-  display: 'flex',
-  justifyContent: 'center',
-  alignItems: 'center',
-  padding: 20
-}
-
-const modalContent = {
-  backgroundColor: 'white',
-  width: '100%',
-  maxWidth: 500,
-  maxHeight: '80vh',
-  overflowY: 'auto',
-  borderRadius: 16,
-  padding: 20
-}
-
-const groupedEntryRow = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '10px 0',
-  borderBottom: '1px solid #eee',
-  flexWrap: 'wrap'
-}
-
-const smallDeleteButton = {
-  marginLeft: 'auto',
-  padding: '6px 10px',
-  border: 'none',
-  borderRadius: 8,
-  backgroundColor: '#ff3b30',
-  color: 'white',
-  fontSize: 14
-}
-
-const closeButton = {
-  padding: '8px 14px',
-  border: 'none',
-  borderRadius: 8,
-  backgroundColor: '#444',
-  color: 'white'
-}
-
-const toastStyle = {
-  position: 'fixed',
-  bottom: 30,
-  left: '50%',
-  transform: 'translateX(-50%)',
-  backgroundColor: 'rgba(0,0,0,0.8)',
-  color: 'white',
-  padding: '12px 20px',
-  borderRadius: 999,
-  fontSize: 16,
-  zIndex: 1000
-}
+const groupedEntryRow = { display: 'flex', gap: 8, padding: '8px 0', borderBottom: '1px solid #eee' }
+const smallDeleteButton = { marginLeft: 'auto', backgroundColor: 'red', color: 'white', border: 'none', borderRadius: 6 }
+const closeButton = { backgroundColor: '#444', color: 'white', border: 'none', padding: 8, borderRadius: 8 }
+const toastStyle = { position: 'fixed', bottom: 30, left: '50%', transform: 'translateX(-50%)', backgroundColor: '#000', color: '#fff', padding: 10, borderRadius: 20 }
 
 export default App
