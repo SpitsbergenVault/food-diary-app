@@ -1,5 +1,45 @@
 import { useEffect, useState } from 'react'
 
+// Safe localStorage loader
+function loadEntries() {
+  try {
+    const saved = localStorage.getItem('foodEntries')
+
+    if (!saved) {
+      return []
+    }
+
+    const parsed = JSON.parse(saved)
+
+    // Validate structure
+    if (!Array.isArray(parsed)) {
+      console.error('Saved entries are not an array')
+      return []
+    }
+
+    return parsed
+  } catch (error) {
+    console.error('Failed to load entries:', error)
+    return []
+  }
+}
+
+// Safe localStorage saver
+function saveEntries(entries) {
+  try {
+    localStorage.setItem(
+      'foodEntries',
+      JSON.stringify(entries)
+    )
+  } catch (error) {
+    console.error('Failed to save entries:', error)
+
+    alert(
+      'Unable to save entries. Storage may be full.'
+    )
+  }
+}
+
 function App() {
   // Create today's date
   const now = new Date()
@@ -26,36 +66,36 @@ function App() {
   const [showModal, setShowModal] = useState(false)
 
   // Entries
-  const [entries, setEntries] = useState([])
+  const [entries, setEntries] = useState(loadEntries)
+
+  // Toast
   const [showToast, setShowToast] = useState(false)
 
-  // Load saved entries
+  // Auto-save whenever entries change
   useEffect(() => {
-    const savedEntries = localStorage.getItem('foodEntries')
-
-    if (savedEntries) {
-      setEntries(JSON.parse(savedEntries))
-    }
-  }, [])
-
-  // Save entries whenever they change
-  useEffect(() => {
-    localStorage.setItem('foodEntries', JSON.stringify(entries))
+    saveEntries(entries)
   }, [entries])
 
   // Add entry
   function addEntry() {
-    if (!food.trim()) return
+    const trimmedFood = food.trim()
+
+    // Prevent blank entries
+    if (!trimmedFood) {
+      return
+    }
 
     const newEntry = {
-      id: Date.now(),
+      id: crypto.randomUUID(),
       date,
       time,
-      food
+      food: trimmedFood,
+      createdAt: Date.now()
     }
 
     const updatedEntries = [...entries, newEntry]
 
+    // Sort newest first
     updatedEntries.sort((a, b) => {
       const dateA = new Date(`${a.date} ${a.time}`)
       const dateB = new Date(`${b.date} ${b.time}`)
@@ -72,7 +112,7 @@ function App() {
       setShowToast(false)
     }, 2000)
 
-    // Clear food field
+    // Clear field
     setFood('')
   }
 
@@ -93,7 +133,7 @@ function App() {
       `"${entry.food.replace(/"/g, '""')}"`
     ])
 
-    // Combine everything into CSV format
+    // Combine into CSV
     const csvContent = [
       headers.join(','),
       ...rows.map(row => row.join(','))
@@ -106,7 +146,6 @@ function App() {
 
     const url = URL.createObjectURL(blob)
 
-    // Create temporary download link
     const link = document.createElement('a')
 
     link.href = url
@@ -131,15 +170,18 @@ function App() {
   }
 
   // Group entries by date
-  const groupedEntries = entries.reduce((groups, entry) => {
-    if (!groups[entry.date]) {
-      groups[entry.date] = []
-    }
+  const groupedEntries = entries.reduce(
+    (groups, entry) => {
+      if (!groups[entry.date]) {
+        groups[entry.date] = []
+      }
 
-    groups[entry.date].push(entry)
+      groups[entry.date].push(entry)
 
-    return groups
-  }, {})
+      return groups
+    },
+    {}
+  )
 
   return (
     <div
@@ -210,7 +252,7 @@ function App() {
 
       {/* Food */}
       <div style={{ marginBottom: 20 }}>
-        <label>Food</label>
+        <label>Food Eaten</label>
 
         <textarea
           value={food}
@@ -335,7 +377,7 @@ function App() {
         </div>
       )}
 
-      {/* Toast Notification */}
+      {/* Toast */}
       {showToast && (
         <div style={toastStyle}>
           Entry Added
@@ -417,22 +459,6 @@ const smallDeleteButton = {
   backgroundColor: '#ff3b30',
   color: 'white',
   fontSize: 14
-}
-
-const entryCard = {
-  border: '1px solid #ddd',
-  borderRadius: 12,
-  padding: 14,
-  marginBottom: 12
-}
-
-const deleteButton = {
-  marginTop: 12,
-  padding: '8px 14px',
-  border: 'none',
-  borderRadius: 8,
-  backgroundColor: '#ff3b30',
-  color: 'white'
 }
 
 const closeButton = {
