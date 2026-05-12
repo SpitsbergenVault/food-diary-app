@@ -5,20 +5,17 @@ import { VitePWA } from 'vite-plugin-pwa'
 export default defineConfig({
   plugins: [
     react(),
-
     VitePWA({
       registerType: 'autoUpdate',
-
+      includeAssets: ['favicon.svg'],
       manifest: {
         name: 'Food Diary',
-        short_name: 'Food Diary',
-        description: 'Personal food tracking app',
-
-        theme_color: '#007AFF',
+        short_name: 'FoodDiary',
+        description: 'Personal food diary app',
+        theme_color: '#000000',
         background_color: '#ffffff',
-
         display: 'standalone',
-
+        start_url: '/',
         icons: [
           {
             src: '/icon-192.png',
