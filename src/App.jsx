@@ -1,5 +1,13 @@
 import { useEffect, useState, useRef } from 'react'
 
+const GOOGLE_CLIENT_ID =
+  '102248618002-qdabmk5jkrc99v5jtga2df4j1ed7mavv.apps.googleusercontent.com'
+
+const GOOGLE_SHEETS_SCOPE =
+  'https://www.googleapis.com/auth/spreadsheets'
+
+const RAW_SHEET_NAME = 'RawData'
+
 // Safe localStorage loader
 function loadEntries() {
   try {
@@ -21,7 +29,6 @@ function loadEntries() {
   }
 }
 
-// Primary save
 function saveEntries(entries) {
   try {
     localStorage.setItem(
@@ -37,7 +44,6 @@ function saveEntries(entries) {
   }
 }
 
-// Auto backup
 function saveBackup(entries) {
   try {
     localStorage.setItem(
@@ -52,7 +58,6 @@ function saveBackup(entries) {
   }
 }
 
-// Convert 12h time → 24h
 function convertTimeTo24Hour(timeString) {
   const [time, modifier] = timeString.split(' ')
 
@@ -73,8 +78,6 @@ function convertTimeTo24Hour(timeString) {
     .padStart(2, '0')}:${minutes}`
 }
 
-// Reverse chronological sorting:
-// newest date first, latest time first
 function sortEntries(entries) {
   return [...entries].sort((a, b) => {
     const dateTimeA = `${a.date}T${convertTimeTo24Hour(
@@ -90,6 +93,164 @@ function sortEntries(entries) {
       new Date(dateTimeA)
     )
   })
+}
+
+function getStoredSpreadsheetId() {
+  return localStorage.getItem(
+    'foodDiarySpreadsheetId'
+  )
+}
+
+function storeSpreadsheetId(spreadsheetId) {
+  localStorage.setItem(
+    'foodDiarySpreadsheetId',
+    spreadsheetId
+  )
+}
+
+function clearStoredSpreadsheetId() {
+  localStorage.removeItem(
+    'foodDiarySpreadsheetId'
+  )
+}
+
+function entriesToSheetValues(entries) {
+  return [
+    ['Date', 'Time', 'Food'],
+    ...sortEntries(entries).map(entry => [
+      entry.date,
+      entry.time,
+      entry.food
+    ])
+  ]
+}
+
+function requestGoogleAccessToken() {
+  return new Promise((resolve, reject) => {
+    if (!window.google?.accounts?.oauth2) {
+      reject(
+        new Error(
+          'Google Identity Services has not loaded yet.'
+        )
+      )
+      return
+    }
+
+    const tokenClient =
+      window.google.accounts.oauth2.initTokenClient({
+        client_id: GOOGLE_CLIENT_ID,
+        scope: GOOGLE_SHEETS_SCOPE,
+        callback: response => {
+          if (response.error) {
+            reject(response)
+            return
+          }
+
+          resolve(response.access_token)
+        }
+      })
+
+    tokenClient.requestAccessToken({
+      prompt: ''
+    })
+  })
+}
+
+async function createFoodDiarySpreadsheet(accessToken) {
+  const response = await fetch(
+    'https://sheets.googleapis.com/v4/spreadsheets',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        properties: {
+          title: 'Food Diary'
+        },
+        sheets: [
+          {
+            properties: {
+              title: RAW_SHEET_NAME
+            }
+          },
+          {
+            properties: {
+              title: 'Formatted'
+            }
+          }
+        ]
+      })
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(
+      'Failed to create spreadsheet'
+    )
+  }
+
+  return response.json()
+}
+
+async function clearRawData(
+  accessToken,
+  spreadsheetId
+) {
+  const range = encodeURIComponent(
+    `${RAW_SHEET_NAME}!A:C`
+  )
+
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:clear`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({})
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(
+      'Failed to clear existing sheet data'
+    )
+  }
+}
+
+async function updateRawData(
+  accessToken,
+  spreadsheetId,
+  entries
+) {
+  const range = encodeURIComponent(
+    `${RAW_SHEET_NAME}!A1`
+  )
+
+  const values = entriesToSheetValues(entries)
+
+  const response = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?valueInputOption=RAW`,
+    {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        values
+      })
+    }
+  )
+
+  if (!response.ok) {
+    throw new Error(
+      'Failed to update sheet data'
+    )
+  }
 }
 
 function App() {
@@ -111,21 +272,22 @@ function App() {
       : `${currentHour - 12}:00 PM`
 
   const [date, setDate] = useState(today)
-
   const [time, setTime] =
     useState(formattedHour)
-
   const [food, setFood] = useState('')
-
   const [showModal, setShowModal] =
     useState(false)
-
   const [entries, setEntries] = useState(
     loadEntries
   )
-
   const [showToast, setShowToast] =
     useState(false)
+  const [
+    spreadsheetId,
+    setSpreadsheetId
+  ] = useState(getStoredSpreadsheetId)
+  const [syncStatus, setSyncStatus] =
+    useState('')
 
   const fileInputRef = useRef(null)
 
@@ -153,7 +315,6 @@ function App() {
     ])
 
     setEntries(updated)
-
     setShowToast(true)
 
     setTimeout(() => {
@@ -166,6 +327,90 @@ function App() {
   function deleteEntry(id) {
     setEntries(
       entries.filter(entry => entry.id !== id)
+    )
+  }
+
+  async function connectGoogleSheets() {
+    try {
+      setSyncStatus('Connecting to Google...')
+
+      const accessToken =
+        await requestGoogleAccessToken()
+
+      const spreadsheet =
+        await createFoodDiarySpreadsheet(
+          accessToken
+        )
+
+      storeSpreadsheetId(
+        spreadsheet.spreadsheetId
+      )
+
+      setSpreadsheetId(
+        spreadsheet.spreadsheetId
+      )
+
+      await updateRawData(
+        accessToken,
+        spreadsheet.spreadsheetId,
+        entries
+      )
+
+      setSyncStatus(
+        'Google Sheet created and synced.'
+      )
+    } catch (error) {
+      console.error(error)
+
+      setSyncStatus(
+        'Google Sheets connection failed.'
+      )
+    }
+  }
+
+  async function syncToGoogleSheets() {
+    try {
+      if (!spreadsheetId) {
+        alert(
+          'Please connect Google Sheets first.'
+        )
+        return
+      }
+
+      setSyncStatus('Syncing to Google Sheets...')
+
+      const accessToken =
+        await requestGoogleAccessToken()
+
+      await clearRawData(
+        accessToken,
+        spreadsheetId
+      )
+
+      await updateRawData(
+        accessToken,
+        spreadsheetId,
+        entries
+      )
+
+      setSyncStatus(
+        'Synced to Google Sheets.'
+      )
+    } catch (error) {
+      console.error(error)
+
+      setSyncStatus(
+        'Google Sheets sync failed.'
+      )
+    }
+  }
+
+  function disconnectGoogleSheets() {
+    clearStoredSpreadsheetId()
+    setSpreadsheetId(null)
+
+    setSyncStatus(
+      'Google Sheets disconnected from this browser.'
     )
   }
 
@@ -193,7 +438,6 @@ function App() {
       const sorted = sortEntries(parsed.data)
 
       setEntries(sorted)
-
       saveEntries(sorted)
 
       alert(
@@ -228,7 +472,6 @@ function App() {
     })
 
     const url = URL.createObjectURL(blob)
-
     const link = document.createElement('a')
 
     link.href = url
@@ -254,7 +497,6 @@ function App() {
     )
 
     const url = URL.createObjectURL(blob)
-
     const a = document.createElement('a')
 
     a.href = url
@@ -291,7 +533,6 @@ function App() {
         const sorted = sortEntries(parsed)
 
         setEntries(sorted)
-
         saveEntries(sorted)
 
         alert(
@@ -303,7 +544,6 @@ function App() {
     }
 
     reader.readAsText(file)
-
     event.target.value = ''
   }
 
@@ -457,6 +697,45 @@ function App() {
         Restore Last Auto-Backup
       </button>
 
+      <button
+        onClick={connectGoogleSheets}
+        style={secondaryButton}
+      >
+        {spreadsheetId
+          ? 'Create New Google Sheet'
+          : 'Connect Google Sheets'}
+      </button>
+
+      <button
+        onClick={syncToGoogleSheets}
+        style={secondaryButton}
+      >
+        Sync to Google Sheets
+      </button>
+
+      {spreadsheetId && (
+        <button
+          onClick={disconnectGoogleSheets}
+          style={secondaryButton}
+        >
+          Disconnect Google Sheets
+        </button>
+      )}
+
+      {syncStatus && (
+        <p style={syncStatusStyle}>
+          {syncStatus}
+        </p>
+      )}
+
+      {spreadsheetId && (
+        <p style={sheetConnectedStyle}>
+          Connected Sheet ID:
+          <br />
+          <code>{spreadsheetId}</code>
+        </p>
+      )}
+
       {showModal && (
         <div style={modalOverlay}>
           <div style={modalContent}>
@@ -532,7 +811,6 @@ function App() {
   )
 }
 
-// Styles
 const inputStyle = {
   width: '100%',
   padding: 12,
@@ -629,6 +907,19 @@ const toastStyle = {
   color: '#fff',
   padding: 10,
   borderRadius: 20
+}
+
+const syncStatusStyle = {
+  textAlign: 'center',
+  fontSize: 14,
+  marginTop: 10
+}
+
+const sheetConnectedStyle = {
+  textAlign: 'center',
+  fontSize: 12,
+  color: '#555',
+  wordBreak: 'break-all'
 }
 
 export default App
