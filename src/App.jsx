@@ -73,7 +73,8 @@ function convertTimeTo24Hour(timeString) {
     .padStart(2, '0')}:${minutes}`
 }
 
-// Stable chronological sorting
+// Reverse chronological sorting:
+// newest date first, latest time first
 function sortEntries(entries) {
   return [...entries].sort((a, b) => {
     const dateTimeA = `${a.date}T${convertTimeTo24Hour(
@@ -85,8 +86,8 @@ function sortEntries(entries) {
     )}`
 
     return (
-      new Date(dateTimeA) -
-      new Date(dateTimeB)
+      new Date(dateTimeB) -
+      new Date(dateTimeA)
     )
   })
 }
@@ -128,13 +129,11 @@ function App() {
 
   const fileInputRef = useRef(null)
 
-  // Save + backup sync
   useEffect(() => {
     saveEntries(entries)
     saveBackup(entries)
   }, [entries])
 
-  // ADD ENTRY
   function addEntry() {
     const trimmedFood = food.trim()
 
@@ -164,14 +163,12 @@ function App() {
     setFood('')
   }
 
-  // DELETE ENTRY
   function deleteEntry(id) {
     setEntries(
       entries.filter(entry => entry.id !== id)
     )
   }
 
-  // RESTORE AUTO BACKUP
   function restoreLastBackup() {
     try {
       const saved = localStorage.getItem(
@@ -207,7 +204,6 @@ function App() {
     }
   }
 
-  // CSV EXPORT
   function exportToCSV() {
     if (entries.length === 0) {
       alert('No entries to export')
@@ -216,7 +212,7 @@ function App() {
 
     const headers = ['Date', 'Time', 'Food']
 
-    const rows = entries.map(entry => [
+    const rows = sortEntries(entries).map(entry => [
       `"${entry.date}"`,
       `"${entry.time}"`,
       `"${entry.food.replace(/"/g, '""')}"`
@@ -242,15 +238,16 @@ function App() {
     URL.revokeObjectURL(url)
   }
 
-  // EXPORT BACKUP JSON
   function exportBackup() {
     if (entries.length === 0) {
       alert('No data to export')
       return
     }
 
+    const sorted = sortEntries(entries)
+
     const blob = new Blob(
-      [JSON.stringify(entries, null, 2)],
+      [JSON.stringify(sorted, null, 2)],
       {
         type: 'application/json'
       }
@@ -273,7 +270,6 @@ function App() {
     URL.revokeObjectURL(url)
   }
 
-  // IMPORT BACKUP
   function importBackup(event) {
     const file = event.target.files[0]
 
@@ -315,11 +311,9 @@ function App() {
     fileInputRef.current?.click()
   }
 
-  // ALWAYS SORT BEFORE RENDER
   const sortedEntries =
     sortEntries(entries)
 
-  // Group entries by date
   const groupedEntries =
     sortedEntries.reduce((groups, entry) => {
       if (!groups[entry.date]) {
@@ -344,7 +338,6 @@ function App() {
         Food Diary
       </h1>
 
-      {/* hidden import input */}
       <input
         ref={fileInputRef}
         type="file"
@@ -353,7 +346,6 @@ function App() {
         style={{ display: 'none' }}
       />
 
-      {/* Date */}
       <div style={{ marginBottom: 15 }}>
         <label>Date</label>
 
@@ -367,7 +359,6 @@ function App() {
         />
       </div>
 
-      {/* Time */}
       <div style={{ marginBottom: 15 }}>
         <label>Time</label>
 
@@ -411,7 +402,6 @@ function App() {
         </select>
       </div>
 
-      {/* Food */}
       <textarea
         value={food}
         onChange={e =>
@@ -467,28 +457,22 @@ function App() {
         Restore Last Auto-Backup
       </button>
 
-      {/* Modal */}
       {showModal && (
         <div style={modalOverlay}>
           <div style={modalContent}>
-            <div
-              style={{
-                display: 'flex',
-                justifyContent:
-                  'space-between'
-              }}
+            <button
+              onClick={() =>
+                setShowModal(false)
+              }
+              style={closeButton}
+              aria-label="Close entries modal"
             >
-              <h2>Entries</h2>
+              ×
+            </button>
 
-              <button
-                onClick={() =>
-                  setShowModal(false)
-                }
-                style={closeButton}
-              >
-                Close
-              </button>
-            </div>
+            <h2 style={{ marginTop: 0 }}>
+              Entries
+            </h2>
 
             {sortedEntries.length === 0 ? (
               <p>No entries yet.</p>
@@ -498,7 +482,7 @@ function App() {
                   <div key={date}>
                     <h3>
                       {new Date(
-                        date
+                        `${date}T00:00:00`
                       ).toLocaleDateString()}
                     </h3>
 
@@ -539,7 +523,6 @@ function App() {
         </div>
       )}
 
-      {/* Toast */}
       {showToast && (
         <div style={toastStyle}>
           Entry Added
@@ -590,16 +573,19 @@ const modalOverlay = {
   backgroundColor: 'rgba(0,0,0,0.5)',
   display: 'flex',
   justifyContent: 'center',
-  alignItems: 'center'
+  alignItems: 'center',
+  padding: 20
 }
 
 const modalContent = {
+  position: 'relative',
   backgroundColor: 'white',
   maxWidth: 500,
   width: '100%',
   maxHeight: '80vh',
   overflowY: 'auto',
   padding: 20,
+  paddingTop: 56,
   borderRadius: 16
 }
 
@@ -619,11 +605,19 @@ const smallDeleteButton = {
 }
 
 const closeButton = {
-  backgroundColor: '#444',
-  color: 'white',
+  position: 'sticky',
+  top: 0,
+  float: 'right',
+  zIndex: 10,
+  width: 36,
+  height: 36,
+  borderRadius: '50%',
   border: 'none',
-  padding: 8,
-  borderRadius: 8
+  backgroundColor: '#eee',
+  color: '#333',
+  fontSize: 28,
+  lineHeight: '36px',
+  cursor: 'pointer'
 }
 
 const toastStyle = {
