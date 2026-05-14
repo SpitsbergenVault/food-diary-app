@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 const GOOGLE_CLIENT_ID =
   '102248618002-qdabmk5jkrc99v5jtga2df4j1ed7mavv.apps.googleusercontent.com'
@@ -8,7 +8,33 @@ const GOOGLE_SHEETS_SCOPE =
 
 const RAW_SHEET_NAME = 'RawData'
 
-// Safe localStorage loader
+const TIME_OPTIONS = [
+  '12:00 AM',
+  '1:00 AM',
+  '2:00 AM',
+  '3:00 AM',
+  '4:00 AM',
+  '5:00 AM',
+  '6:00 AM',
+  '7:00 AM',
+  '8:00 AM',
+  '9:00 AM',
+  '10:00 AM',
+  '11:00 AM',
+  '12:00 PM',
+  '1:00 PM',
+  '2:00 PM',
+  '3:00 PM',
+  '4:00 PM',
+  '5:00 PM',
+  '6:00 PM',
+  '7:00 PM',
+  '8:00 PM',
+  '9:00 PM',
+  '10:00 PM',
+  '11:00 PM'
+]
+
 function loadEntries() {
   try {
     const saved = localStorage.getItem('foodEntries')
@@ -31,16 +57,10 @@ function loadEntries() {
 
 function saveEntries(entries) {
   try {
-    localStorage.setItem(
-      'foodEntries',
-      JSON.stringify(entries)
-    )
+    localStorage.setItem('foodEntries', JSON.stringify(entries))
   } catch (error) {
     console.error('Failed to save entries:', error)
-
-    alert(
-      'Unable to save entries. Storage may be full.'
-    )
+    alert('Unable to save entries. Storage may be full.')
   }
 }
 
@@ -60,147 +80,103 @@ function saveBackup(entries) {
 
 function convertTimeTo24Hour(timeString) {
   const [time, modifier] = timeString.split(' ')
-
   let [hours, minutes] = time.split(':')
 
-  hours = parseInt(hours)
+  hours = parseInt(hours, 10)
 
-  if (modifier === 'PM' && hours !== 12) {
-    hours += 12
-  }
+  if (modifier === 'PM' && hours !== 12) hours += 12
+  if (modifier === 'AM' && hours === 12) hours = 0
 
-  if (modifier === 'AM' && hours === 12) {
-    hours = 0
-  }
-
-  return `${hours
-    .toString()
-    .padStart(2, '0')}:${minutes}`
+  return `${hours.toString().padStart(2, '0')}:${minutes}`
 }
 
 function sortEntries(entries) {
   return [...entries].sort((a, b) => {
-    const dateTimeA = `${a.date}T${convertTimeTo24Hour(
-      a.time
-    )}`
+    const dateTimeA = `${a.date}T${convertTimeTo24Hour(a.time)}`
+    const dateTimeB = `${b.date}T${convertTimeTo24Hour(b.time)}`
 
-    const dateTimeB = `${b.date}T${convertTimeTo24Hour(
-      b.time
-    )}`
-
-    return (
-      new Date(dateTimeB) -
-      new Date(dateTimeA)
-    )
+    return new Date(dateTimeB) - new Date(dateTimeA)
   })
 }
 
 function getStoredSpreadsheetId() {
-  return localStorage.getItem(
-    'foodDiarySpreadsheetId'
-  )
+  return localStorage.getItem('foodDiarySpreadsheetId')
 }
 
 function storeSpreadsheetId(spreadsheetId) {
-  localStorage.setItem(
-    'foodDiarySpreadsheetId',
-    spreadsheetId
-  )
+  localStorage.setItem('foodDiarySpreadsheetId', spreadsheetId)
 }
 
 function clearStoredSpreadsheetId() {
-  localStorage.removeItem(
-    'foodDiarySpreadsheetId'
-  )
+  localStorage.removeItem('foodDiarySpreadsheetId')
 }
 
 function entriesToSheetValues(entries) {
   return [
     ['Date', 'Time', 'Food'],
-    ...sortEntries(entries).map(entry => [
-      entry.date,
-      entry.time,
-      entry.food
-    ])
+    ...sortEntries(entries).map(entry => [entry.date, entry.time, entry.food])
   ]
 }
 
 function requestGoogleAccessToken() {
   return new Promise((resolve, reject) => {
     if (!window.google?.accounts?.oauth2) {
-      reject(
-        new Error(
-          'Google Identity Services has not loaded yet.'
-        )
-      )
+      reject(new Error('Google Identity Services has not loaded yet.'))
       return
     }
 
-    const tokenClient =
-      window.google.accounts.oauth2.initTokenClient({
-        client_id: GOOGLE_CLIENT_ID,
-        scope: GOOGLE_SHEETS_SCOPE,
-        callback: response => {
-          if (response.error) {
-            reject(response)
-            return
-          }
-
-          resolve(response.access_token)
+    const tokenClient = window.google.accounts.oauth2.initTokenClient({
+      client_id: GOOGLE_CLIENT_ID,
+      scope: GOOGLE_SHEETS_SCOPE,
+      callback: response => {
+        if (response.error) {
+          reject(response)
+          return
         }
-      })
 
-    tokenClient.requestAccessToken({
-      prompt: ''
+        resolve(response.access_token)
+      }
     })
+
+    tokenClient.requestAccessToken({ prompt: '' })
   })
 }
 
 async function createFoodDiarySpreadsheet(accessToken) {
-  const response = await fetch(
-    'https://sheets.googleapis.com/v4/spreadsheets',
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json'
+  const response = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      properties: {
+        title: 'PANA Intake Registry'
       },
-      body: JSON.stringify({
-        properties: {
-          title: 'Food Diary'
-        },
-        sheets: [
-          {
-            properties: {
-              title: RAW_SHEET_NAME
-            }
-          },
-          {
-            properties: {
-              title: 'Formatted'
-            }
+      sheets: [
+        {
+          properties: {
+            title: RAW_SHEET_NAME
           }
-        ]
-      })
-    }
-  )
+        },
+        {
+          properties: {
+            title: 'Formatted'
+          }
+        }
+      ]
+    })
+  })
 
   if (!response.ok) {
-    throw new Error(
-      'Failed to create spreadsheet'
-    )
+    throw new Error('Failed to create spreadsheet')
   }
 
   return response.json()
 }
 
-async function clearRawData(
-  accessToken,
-  spreadsheetId
-) {
-  const range = encodeURIComponent(
-    `${RAW_SHEET_NAME}!A:C`
-  )
+async function clearRawData(accessToken, spreadsheetId) {
+  const range = encodeURIComponent(`${RAW_SHEET_NAME}!A:C`)
 
   const response = await fetch(
     `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:clear`,
@@ -215,21 +191,12 @@ async function clearRawData(
   )
 
   if (!response.ok) {
-    throw new Error(
-      'Failed to clear existing sheet data'
-    )
+    throw new Error('Failed to clear existing sheet data')
   }
 }
 
-async function updateRawData(
-  accessToken,
-  spreadsheetId,
-  entries
-) {
-  const range = encodeURIComponent(
-    `${RAW_SHEET_NAME}!A1`
-  )
-
+async function updateRawData(accessToken, spreadsheetId, entries) {
+  const range = encodeURIComponent(`${RAW_SHEET_NAME}!A1`)
   const values = entriesToSheetValues(entries)
 
   const response = await fetch(
@@ -240,26 +207,33 @@ async function updateRawData(
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        values
-      })
+      body: JSON.stringify({ values })
     }
   )
 
   if (!response.ok) {
-    throw new Error(
-      'Failed to update sheet data'
-    )
+    throw new Error('Failed to update sheet data')
   }
+}
+
+function formatDateForDisplay(value) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric'
+  })
+}
+
+function formatTimeNow() {
+  return new Date().toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit'
+  })
 }
 
 function App() {
   const now = new Date()
-
-  const today = now
-    .toISOString()
-    .split('T')[0]
-
+  const today = now.toISOString().split('T')[0]
   const currentHour = now.getHours()
 
   const formattedHour =
@@ -272,22 +246,15 @@ function App() {
       : `${currentHour - 12}:00 PM`
 
   const [date, setDate] = useState(today)
-  const [time, setTime] =
-    useState(formattedHour)
+  const [time, setTime] = useState(formattedHour)
   const [food, setFood] = useState('')
-  const [showModal, setShowModal] =
-    useState(false)
-  const [entries, setEntries] = useState(
-    loadEntries
-  )
-  const [showToast, setShowToast] =
-    useState(false)
-  const [
-    spreadsheetId,
-    setSpreadsheetId
-  ] = useState(getStoredSpreadsheetId)
-  const [syncStatus, setSyncStatus] =
-    useState('')
+  const [entries, setEntries] = useState(loadEntries)
+  const [showArchive, setShowArchive] = useState(false)
+  const [showSystem, setShowSystem] = useState(false)
+  const [toast, setToast] = useState('')
+  const [spreadsheetId, setSpreadsheetId] = useState(getStoredSpreadsheetId)
+  const [syncStatus, setSyncStatus] = useState('')
+  const [clock, setClock] = useState(formatTimeNow())
 
   const fileInputRef = useRef(null)
 
@@ -296,10 +263,63 @@ function App() {
     saveBackup(entries)
   }, [entries])
 
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      setClock(formatTimeNow())
+    }, 30000)
+
+    return () => window.clearInterval(timer)
+  }, [])
+
+  useEffect(() => {
+    async function lockPortrait() {
+      try {
+        if (screen.orientation?.lock) {
+          await screen.orientation.lock('portrait')
+        }
+      } catch (error) {
+        // iOS Safari and some browsers block orientation locking for PWAs.
+        // The landscape guard below still keeps the experience portrait-first.
+      }
+    }
+
+    lockPortrait()
+  }, [])
+
+  const sortedEntries = useMemo(() => sortEntries(entries), [entries])
+
+  const groupedEntries = useMemo(
+    () =>
+      sortedEntries.reduce((groups, entry) => {
+        if (!groups[entry.date]) groups[entry.date] = []
+        groups[entry.date].push(entry)
+        return groups
+      }, {}),
+    [sortedEntries]
+  )
+
+  const todayEntries = useMemo(
+    () => entries.filter(entry => entry.date === today),
+    [entries, today]
+  )
+
+  const latestEntry = sortedEntries[0]
+
+  function showSystemMessage(message) {
+    setToast(message)
+
+    window.setTimeout(() => {
+      setToast('')
+    }, 2200)
+  }
+
   function addEntry() {
     const trimmedFood = food.trim()
 
-    if (!trimmedFood) return
+    if (!trimmedFood) {
+      showSystemMessage('INVALID ENTRY FORMAT')
+      return
+    }
 
     const newEntry = {
       id: crypto.randomUUID(),
@@ -309,129 +329,80 @@ function App() {
       createdAt: Date.now()
     }
 
-    const updated = sortEntries([
-      ...entries,
-      newEntry
-    ])
-
-    setEntries(updated)
-    setShowToast(true)
-
-    setTimeout(() => {
-      setShowToast(false)
-    }, 2000)
-
+    setEntries(sortEntries([...entries, newEntry]))
     setFood('')
+    showSystemMessage('ENTRY ARCHIVED')
   }
 
   function deleteEntry(id) {
-    setEntries(
-      entries.filter(entry => entry.id !== id)
-    )
+    setEntries(entries.filter(entry => entry.id !== id))
+    showSystemMessage('RECORD VOIDED')
   }
 
   async function connectGoogleSheets() {
     try {
-      setSyncStatus('Connecting to Google...')
+      setSyncStatus('CREATING EXTERNAL ARCHIVE...')
 
-      const accessToken =
-        await requestGoogleAccessToken()
+      const accessToken = await requestGoogleAccessToken()
+      const spreadsheet = await createFoodDiarySpreadsheet(accessToken)
 
-      const spreadsheet =
-        await createFoodDiarySpreadsheet(
-          accessToken
-        )
+      storeSpreadsheetId(spreadsheet.spreadsheetId)
+      setSpreadsheetId(spreadsheet.spreadsheetId)
 
-      storeSpreadsheetId(
-        spreadsheet.spreadsheetId
-      )
+      await updateRawData(accessToken, spreadsheet.spreadsheetId, entries)
 
-      setSpreadsheetId(
-        spreadsheet.spreadsheetId
-      )
-
-      await updateRawData(
-        accessToken,
-        spreadsheet.spreadsheetId,
-        entries
-      )
-
-      setSyncStatus(
-        'Google Sheet created and synced.'
-      )
+      setSyncStatus('EXTERNAL ARCHIVE LINKED')
+      showSystemMessage('SHEETS ARCHIVE LINKED')
     } catch (error) {
       console.error(error)
-
-      setSyncStatus(
-        'Google Sheets connection failed.'
-      )
+      setSyncStatus('GOOGLE SHEETS CONNECTION FAILED')
+      showSystemMessage('CONNECTION FAILED')
     }
   }
 
   async function syncToGoogleSheets() {
     try {
       if (!spreadsheetId) {
-        alert(
-          'Please connect Google Sheets first.'
-        )
+        await connectGoogleSheets()
         return
       }
 
-      setSyncStatus('Syncing to Google Sheets...')
+      setSyncStatus('SYNCING TO GOOGLE SHEETS...')
 
-      const accessToken =
-        await requestGoogleAccessToken()
+      const accessToken = await requestGoogleAccessToken()
 
-      await clearRawData(
-        accessToken,
-        spreadsheetId
-      )
+      await clearRawData(accessToken, spreadsheetId)
+      await updateRawData(accessToken, spreadsheetId, entries)
 
-      await updateRawData(
-        accessToken,
-        spreadsheetId,
-        entries
-      )
-
-      setSyncStatus(
-        'Synced to Google Sheets.'
-      )
+      setSyncStatus('EXTERNAL ARCHIVE UPDATED')
+      showSystemMessage('SYNC COMPLETE')
     } catch (error) {
       console.error(error)
-
-      setSyncStatus(
-        'Google Sheets sync failed.'
-      )
+      setSyncStatus('GOOGLE SHEETS SYNC FAILED')
+      showSystemMessage('SYNC FAILED')
     }
   }
 
   function disconnectGoogleSheets() {
     clearStoredSpreadsheetId()
     setSpreadsheetId(null)
-
-    setSyncStatus(
-      'Google Sheets disconnected from this browser.'
-    )
+    setSyncStatus('EXTERNAL ARCHIVE DISCONNECTED')
+    showSystemMessage('SHEETS LINK REMOVED')
   }
 
   function restoreLastBackup() {
     try {
-      const saved = localStorage.getItem(
-        'foodEntries_backup'
-      )
+      const saved = localStorage.getItem('foodEntries_backup')
 
       if (!saved) {
-        alert('No backup found')
+        showSystemMessage('NO BACKUP FOUND')
         return
       }
 
       const parsed = JSON.parse(saved)
 
-      if (
-        !parsed?.data ||
-        !Array.isArray(parsed.data)
-      ) {
-        alert('Backup is corrupted')
+      if (!parsed?.data || !Array.isArray(parsed.data)) {
+        showSystemMessage('BACKUP CORRUPTED')
         return
       }
 
@@ -439,77 +410,57 @@ function App() {
 
       setEntries(sorted)
       saveEntries(sorted)
-
-      alert(
-        'Restored last backup successfully!'
-      )
+      showSystemMessage('AUTO-ARCHIVE RESTORED')
     } catch (error) {
-      alert('Failed to restore backup')
+      showSystemMessage('RESTORE FAILED')
     }
   }
 
   function exportToCSV() {
     if (entries.length === 0) {
-      alert('No entries to export')
+      showSystemMessage('NO RECORDS TO EXPORT')
       return
     }
 
     const headers = ['Date', 'Time', 'Food']
-
     const rows = sortEntries(entries).map(entry => [
       `"${entry.date}"`,
       `"${entry.time}"`,
       `"${entry.food.replace(/"/g, '""')}"`
     ])
 
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.join(','))
-    ].join('\n')
-
-    const blob = new Blob([csvContent], {
-      type: 'text/csv;charset=utf-8;'
-    })
-
+    const csvContent = [headers.join(','), ...rows.map(row => row.join(','))].join('\n')
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
 
     link.href = url
-    link.download = 'food-diary.csv'
+    link.download = 'pana-intake-registry.csv'
     link.click()
 
     URL.revokeObjectURL(url)
+    showSystemMessage('ARCHIVE CSV EXPORTED')
   }
 
   function exportBackup() {
     if (entries.length === 0) {
-      alert('No data to export')
+      showSystemMessage('NO REGISTRY DATA')
       return
     }
 
     const sorted = sortEntries(entries)
-
-    const blob = new Blob(
-      [JSON.stringify(sorted, null, 2)],
-      {
-        type: 'application/json'
-      }
-    )
-
+    const blob = new Blob([JSON.stringify(sorted, null, 2)], {
+      type: 'application/json'
+    })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
 
     a.href = url
-
-    a.download = `food-diary-backup-${
-      new Date()
-        .toISOString()
-        .split('T')[0]
-    }.json`
-
+    a.download = `pana-registry-backup-${new Date().toISOString().split('T')[0]}.json`
     a.click()
 
     URL.revokeObjectURL(url)
+    showSystemMessage('REGISTRY BACKUP EXPORTED')
   }
 
   function importBackup(event) {
@@ -521,12 +472,10 @@ function App() {
 
     reader.onload = e => {
       try {
-        const parsed = JSON.parse(
-          e.target.result
-        )
+        const parsed = JSON.parse(e.target.result)
 
         if (!Array.isArray(parsed)) {
-          alert('Invalid backup file')
+          showSystemMessage('INVALID BACKUP FILE')
           return
         }
 
@@ -534,12 +483,9 @@ function App() {
 
         setEntries(sorted)
         saveEntries(sorted)
-
-        alert(
-          'Backup restored successfully!'
-        )
+        showSystemMessage('REGISTRY BACKUP IMPORTED')
       } catch (error) {
-        alert('Failed to restore backup')
+        showSystemMessage('BACKUP IMPORT FAILED')
       }
     }
 
@@ -551,375 +497,772 @@ function App() {
     fileInputRef.current?.click()
   }
 
-  const sortedEntries =
-    sortEntries(entries)
-
-  const groupedEntries =
-    sortedEntries.reduce((groups, entry) => {
-      if (!groups[entry.date]) {
-        groups[entry.date] = []
-      }
-
-      groups[entry.date].push(entry)
-
-      return groups
-    }, {})
-
   return (
-    <div
-      style={{
-        padding: 20,
-        fontFamily: 'Arial',
-        maxWidth: 500,
-        margin: '0 auto'
-      }}
-    >
-      <h1 style={{ textAlign: 'center' }}>
-        Food Diary
-      </h1>
+    <div style={styles.appShell}>
+      <style>{globalCss}</style>
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept="application/json"
-        onChange={importBackup}
-        style={{ display: 'none' }}
-      />
+      <div className="pana-landscape-guard" style={styles.landscapeGuard}>
+        <div style={styles.guardPanel}>
+          <div style={styles.guardIcon}>▯</div>
+          <strong>PORTRAIT TERMINAL REQUIRED</strong>
+          <span>Rotate device to resume intake registration.</span>
+        </div>
+      </div>
 
-      <div style={{ marginBottom: 15 }}>
-        <label>Date</label>
-
+      <main style={styles.mainTerminal}>
         <input
-          type="date"
-          value={date}
-          onChange={e =>
-            setDate(e.target.value)
-          }
-          style={inputStyle}
+          ref={fileInputRef}
+          type="file"
+          accept="application/json"
+          onChange={importBackup}
+          style={{ display: 'none' }}
         />
-      </div>
 
-      <div style={{ marginBottom: 15 }}>
-        <label>Time</label>
-
-        <select
-          value={time}
-          onChange={e =>
-            setTime(e.target.value)
-          }
-          style={inputStyle}
-        >
-          {[
-            '12:00 AM',
-            '1:00 AM',
-            '2:00 AM',
-            '3:00 AM',
-            '4:00 AM',
-            '5:00 AM',
-            '6:00 AM',
-            '7:00 AM',
-            '8:00 AM',
-            '9:00 AM',
-            '10:00 AM',
-            '11:00 AM',
-            '12:00 PM',
-            '1:00 PM',
-            '2:00 PM',
-            '3:00 PM',
-            '4:00 PM',
-            '5:00 PM',
-            '6:00 PM',
-            '7:00 PM',
-            '8:00 PM',
-            '9:00 PM',
-            '10:00 PM',
-            '11:00 PM'
-          ].map(hour => (
-            <option key={hour} value={hour}>
-              {hour}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <textarea
-        value={food}
-        onChange={e =>
-          setFood(e.target.value)
-        }
-        placeholder="Enter food description"
-        rows={4}
-        style={{
-          ...inputStyle,
-          resize: 'none'
-        }}
-      />
-
-      <button
-        onClick={addEntry}
-        style={primaryButton}
-      >
-        Add Entry
-      </button>
-
-      <button
-        onClick={() => setShowModal(true)}
-        style={secondaryButton}
-      >
-        View Entries
-      </button>
-
-      <button
-        onClick={exportToCSV}
-        style={secondaryButton}
-      >
-        Export CSV
-      </button>
-
-      <button
-        onClick={exportBackup}
-        style={secondaryButton}
-      >
-        Export Backup (JSON)
-      </button>
-
-      <button
-        onClick={triggerImport}
-        style={secondaryButton}
-      >
-        Import Backup (JSON)
-      </button>
-
-      <button
-        onClick={restoreLastBackup}
-        style={secondaryButton}
-      >
-        Restore Last Auto-Backup
-      </button>
-
-      <button
-        onClick={connectGoogleSheets}
-        style={secondaryButton}
-      >
-        {spreadsheetId
-          ? 'Create New Google Sheet'
-          : 'Connect Google Sheets'}
-      </button>
-
-      <button
-        onClick={syncToGoogleSheets}
-        style={secondaryButton}
-      >
-        Sync to Google Sheets
-      </button>
-
-      {spreadsheetId && (
-        <button
-          onClick={disconnectGoogleSheets}
-          style={secondaryButton}
-        >
-          Disconnect Google Sheets
-        </button>
-      )}
-
-      {syncStatus && (
-        <p style={syncStatusStyle}>
-          {syncStatus}
-        </p>
-      )}
-
-      {spreadsheetId && (
-        <p style={sheetConnectedStyle}>
-          Connected Sheet ID:
-          <br />
-          <code>{spreadsheetId}</code>
-        </p>
-      )}
-
-      {showModal && (
-        <div style={modalOverlay}>
-          <div style={modalContent}>
-            <button
-              onClick={() =>
-                setShowModal(false)
-              }
-              style={closeButton}
-              aria-label="Close entries modal"
-            >
-              ×
-            </button>
-
-            <h2 style={{ marginTop: 0 }}>
-              Entries
-            </h2>
-
-            {sortedEntries.length === 0 ? (
-              <p>No entries yet.</p>
-            ) : (
-              Object.entries(groupedEntries).map(
-                ([date, items]) => (
-                  <div key={date}>
-                    <h3>
-                      {new Date(
-                        `${date}T00:00:00`
-                      ).toLocaleDateString()}
-                    </h3>
-
-                    {items.map(entry => (
-                      <div
-                        key={entry.id}
-                        style={
-                          groupedEntryRow
-                        }
-                      >
-                        <strong>
-                          {entry.time}
-                        </strong>
-
-                        <span>
-                          — {entry.food}
-                        </span>
-
-                        <button
-                          onClick={() =>
-                            deleteEntry(
-                              entry.id
-                            )
-                          }
-                          style={
-                            smallDeleteButton
-                          }
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )
-              )
-            )}
+        <header style={styles.identityPanel}>
+          <div>
+            <div style={styles.brand}>PANA</div>
+            <div style={styles.subtitle}>LOCAL INTAKE REGISTRY</div>
+            <div style={styles.nodeLine}>NIGHT TERMINAL // NODE ACTIVE</div>
           </div>
-        </div>
+
+          <div style={styles.clockBox}>
+            <span>{formatDateForDisplay(today)}</span>
+            <strong>{clock}</strong>
+          </div>
+        </header>
+
+        <section style={styles.panel}>
+          <PanelTitle title="REGISTER INTAKE EVENT" tone="aqua" />
+
+          <label style={styles.label} htmlFor="registry-date">
+            REGISTRY DATE
+          </label>
+          <input
+            id="registry-date"
+            type="date"
+            value={date}
+            onChange={e => setDate(e.target.value)}
+            style={styles.input}
+          />
+
+          <label style={styles.label} htmlFor="local-time">
+            LOCAL TIME
+          </label>
+          <select
+            id="local-time"
+            value={time}
+            onChange={e => setTime(e.target.value)}
+            style={styles.input}
+          >
+            {TIME_OPTIONS.map(hour => (
+              <option key={hour} value={hour}>
+                {hour}
+              </option>
+            ))}
+          </select>
+
+          <label style={styles.label} htmlFor="intake-event">
+            DESCRIBE INTAKE EVENT
+          </label>
+          <textarea
+            id="intake-event"
+            value={food}
+            onChange={e => setFood(e.target.value)}
+            placeholder="Describe intake event..."
+            rows={4}
+            style={{ ...styles.input, ...styles.textarea }}
+          />
+
+          <button onClick={addEntry} style={styles.primaryButton}>
+            <span>REGISTER INTAKE</span>
+            <span aria-hidden="true">›</span>
+          </button>
+        </section>
+
+        <section style={styles.summaryPanel}>
+          <PanelTitle title="TODAY'S REGISTRY SUMMARY" tone="aqua" />
+
+          <div style={styles.summaryGrid}>
+            <Metric label="EVENTS REGISTERED" value={todayEntries.length.toString().padStart(2, '0')} />
+            <Metric label="TOTAL ARCHIVE" value={entries.length.toString().padStart(2, '0')} />
+            <div style={styles.waveBox} aria-hidden="true">
+              <svg viewBox="0 0 120 48" style={styles.waveSvg}>
+                <polyline
+                  points="4,34 20,34 30,22 42,38 56,12 70,28 84,18 98,26 116,26"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="4"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            </div>
+          </div>
+        </section>
+
+        <section style={styles.commandGrid}>
+          <button
+            onClick={() => setShowArchive(true)}
+            style={{ ...styles.commandCard, ...styles.magentaCard }}
+          >
+            <span style={styles.commandIcon}>▤</span>
+            <span>
+              <strong>VIEW ARCHIVE</strong>
+              <small>BROWSE INTAKE LOG</small>
+            </span>
+            <span aria-hidden="true">›</span>
+          </button>
+
+          <button
+            onClick={syncToGoogleSheets}
+            style={{ ...styles.commandCard, ...styles.aquaCard }}
+          >
+            <span style={styles.commandIcon}>▦</span>
+            <span>
+              <strong>SYNC TO GOOGLE SHEETS</strong>
+              <small>{spreadsheetId ? 'EXTERNAL ARCHIVE READY' : 'CREATE ARCHIVE LINK'}</small>
+            </span>
+            <span aria-hidden="true">›</span>
+          </button>
+        </section>
+
+        <button onClick={() => setShowSystem(true)} style={styles.systemButton}>
+          <span style={styles.commandIcon}>⚙</span>
+          <span>
+            <strong>SYSTEM OPERATIONS</strong>
+            <small>BACKUPS, EXPORTS, SETTINGS</small>
+          </span>
+          <span aria-hidden="true">›</span>
+        </button>
+
+        <section style={styles.statusRail}>
+          <span>LOCAL STORAGE: ONLINE</span>
+          <span>{spreadsheetId ? 'EXTERNAL ARCHIVE: LINKED' : 'EXTERNAL ARCHIVE: OFFLINE'}</span>
+        </section>
+
+        <section style={styles.infoPanel}>
+          <h2 style={styles.infoTitle}>MAIN TERMINAL</h2>
+          <p style={styles.infoCopy}>
+            Primary workflow: register intake, view archive, sync to Google Sheets.
+          </p>
+          {latestEntry && (
+            <p style={styles.latestLine}>
+              LAST ENTRY: {latestEntry.time} / {latestEntry.food}
+            </p>
+          )}
+          {syncStatus && <p style={styles.syncStatus}>{syncStatus}</p>}
+        </section>
+      </main>
+
+      {showArchive && (
+        <Modal title="PANA ARCHIVE" subtitle="INTAKE EVENT LOG" tone="magenta" onClose={() => setShowArchive(false)}>
+          {sortedEntries.length === 0 ? (
+            <div style={styles.emptyState}>NO INTAKE RECORDS FOUND</div>
+          ) : (
+            Object.entries(groupedEntries).map(([groupDate, items]) => (
+              <section key={groupDate} style={styles.archiveGroup}>
+                <div style={styles.archiveGroupHeader}>
+                  <span>{formatDateForDisplay(groupDate).toUpperCase()}</span>
+                  <span>{items.length.toString().padStart(2, '0')} EVENTS</span>
+                </div>
+
+                {items.map(entry => (
+                  <article key={entry.id} style={styles.archiveRecord}>
+                    <div style={styles.recordTime}>{entry.time}</div>
+                    <div style={styles.recordFood}>{entry.food}</div>
+                    <div style={styles.recordFooter}>
+                      <span>STATUS: ARCHIVED</span>
+                      <button onClick={() => deleteEntry(entry.id)} style={styles.voidButton}>
+                        VOID RECORD
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </section>
+            ))
+          )}
+        </Modal>
       )}
 
-      {showToast && (
-        <div style={toastStyle}>
-          Entry Added
-        </div>
+      {showSystem && (
+        <Modal title="SYSTEM OPERATIONS" subtitle="MAINTENANCE & DATA MANAGEMENT" tone="yellow" onClose={() => setShowSystem(false)}>
+          <SystemAction title="EXPORT ARCHIVE CSV" description="Download intake data" onClick={exportToCSV} />
+          <SystemAction title="EXPORT REGISTRY BACKUP" description="Create full data backup" onClick={exportBackup} />
+          <SystemAction title="IMPORT REGISTRY BACKUP" description="Restore from backup file" onClick={triggerImport} />
+          <SystemAction title="RESTORE LAST AUTO-ARCHIVE" description="Restore most recent local backup" onClick={restoreLastBackup} />
+          <SystemAction
+            title={spreadsheetId ? 'CREATE NEW GOOGLE SHEET' : 'CONNECT GOOGLE SHEETS'}
+            description={spreadsheetId ? 'Generate and connect new sheet' : 'Create external archive'}
+            onClick={connectGoogleSheets}
+          />
+          <SystemAction title="SYNC TO GOOGLE SHEETS" description="Push latest data to connected sheet" onClick={syncToGoogleSheets} />
+          {spreadsheetId && (
+            <SystemAction title="DISCONNECT GOOGLE SHEETS" description="Remove current sheet connection" onClick={disconnectGoogleSheets} danger />
+          )}
+
+          {spreadsheetId && (
+            <div style={styles.sheetIdBox}>
+              <span>CONNECTED SHEET ID</span>
+              <code>{spreadsheetId}</code>
+            </div>
+          )}
+        </Modal>
       )}
+
+      {toast && <div style={styles.toast}>{toast}</div>}
     </div>
   )
 }
 
-const inputStyle = {
-  width: '100%',
-  padding: 12,
-  fontSize: 16,
-  marginTop: 6,
-  borderRadius: 10,
-  border: '1px solid #ccc'
+function PanelTitle({ title, tone }) {
+  return (
+    <div style={styles.panelTitleRow}>
+      <h2 style={{ ...styles.panelTitle, color: tone === 'yellow' ? tokens.yellow : tokens.aqua }}>
+        {title}
+      </h2>
+      <span style={styles.hatch}>////////</span>
+    </div>
+  )
 }
 
-const primaryButton = {
-  width: '100%',
-  padding: 14,
-  fontSize: 18,
-  borderRadius: 12,
-  backgroundColor: '#007AFF',
-  color: 'white',
-  border: 'none',
-  marginTop: 10
+function Metric({ label, value }) {
+  return (
+    <div style={styles.metricBox}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  )
 }
 
-const secondaryButton = {
-  width: '100%',
-  padding: 14,
-  fontSize: 18,
-  borderRadius: 12,
-  backgroundColor: '#444',
-  color: 'white',
-  border: 'none',
-  marginTop: 10
+function Modal({ title, subtitle, tone, children, onClose }) {
+  const borderColor = tone === 'yellow' ? tokens.yellow : tokens.magenta
+
+  return (
+    <div style={styles.modalOverlay}>
+      <div style={{ ...styles.modalContent, borderColor, boxShadow: `0 0 28px ${hexToGlow(borderColor)}` }}>
+        <button onClick={onClose} style={{ ...styles.closeButton, color: borderColor, borderColor }} aria-label="Close panel">
+          ×
+        </button>
+        <header style={styles.modalHeader}>
+          <h2 style={{ ...styles.modalTitle, color: borderColor }}>{title}</h2>
+          <p style={styles.modalSubtitle}>{subtitle}</p>
+        </header>
+        {children}
+      </div>
+    </div>
+  )
 }
 
-const modalOverlay = {
-  position: 'fixed',
-  top: 0,
-  left: 0,
-  right: 0,
-  bottom: 0,
-  backgroundColor: 'rgba(0,0,0,0.5)',
-  display: 'flex',
-  justifyContent: 'center',
-  alignItems: 'center',
-  padding: 20
+function SystemAction({ title, description, onClick, danger = false }) {
+  return (
+    <button onClick={onClick} style={styles.systemAction}>
+      <span style={{ ...styles.systemActionIcon, color: danger ? tokens.magenta : tokens.yellow }}>
+        {danger ? '×' : '↧'}
+      </span>
+      <span>
+        <strong>{title}</strong>
+        <small>{description}</small>
+      </span>
+      <span aria-hidden="true">›</span>
+    </button>
+  )
 }
 
-const modalContent = {
-  position: 'relative',
-  backgroundColor: 'white',
-  maxWidth: 500,
-  width: '100%',
-  maxHeight: '80vh',
-  overflowY: 'auto',
-  padding: 20,
-  paddingTop: 56,
-  borderRadius: 16
+function hexToGlow(hex) {
+  if (hex === tokens.yellow) return 'rgba(255, 212, 0, 0.28)'
+  if (hex === tokens.magenta) return 'rgba(255, 61, 141, 0.24)'
+  return 'rgba(45, 226, 230, 0.24)'
 }
 
-const groupedEntryRow = {
-  display: 'flex',
-  gap: 8,
-  padding: '8px 0',
-  borderBottom: '1px solid #eee'
+const tokens = {
+  night: '#07090f',
+  panel: 'rgba(5, 14, 18, 0.88)',
+  panelSoft: 'rgba(11, 22, 28, 0.74)',
+  line: 'rgba(45, 226, 230, 0.42)',
+  lineSoft: 'rgba(245, 241, 232, 0.18)',
+  text: '#F5F1E8',
+  muted: '#9EA3B3',
+  aqua: '#2DE2E6',
+  green: '#3CF58A',
+  orange: '#FF6A2A',
+  magenta: '#FF3D8D',
+  yellow: '#FFD400'
 }
 
-const smallDeleteButton = {
-  marginLeft: 'auto',
-  backgroundColor: 'red',
-  color: 'white',
-  border: 'none',
-  borderRadius: 6
+const globalCss = `
+  :root {
+    color-scheme: dark;
+    background: ${tokens.night};
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+    margin: 0;
+    background: ${tokens.night};
+  }
+
+  body {
+    overflow-x: hidden;
+  }
+
+  button,
+  input,
+  textarea,
+  select {
+    font: inherit;
+  }
+
+  button {
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  input[type='date']::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    opacity: 0.85;
+  }
+
+  select {
+    appearance: auto;
+  }
+
+  @media (orientation: landscape) and (max-height: 520px) {
+    .pana-landscape-guard {
+      display: flex !important;
+    }
+  }
+`
+
+const styles = {
+  appShell: {
+    minHeight: '100vh',
+    color: tokens.text,
+    fontFamily:
+      'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
+    background:
+      'radial-gradient(circle at top left, rgba(45, 226, 230, 0.16), transparent 36%), radial-gradient(circle at bottom right, rgba(255, 61, 141, 0.12), transparent 34%), #07090f',
+    padding: 'max(14px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom))'
+  },
+  mainTerminal: {
+    width: '100%',
+    maxWidth: 520,
+    margin: '0 auto',
+    display: 'grid',
+    gap: 14
+  },
+  landscapeGuard: {
+    display: 'none',
+    position: 'fixed',
+    inset: 0,
+    zIndex: 9999,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+    background: 'rgba(7, 9, 15, 0.97)'
+  },
+  guardPanel: {
+    width: 'min(360px, 100%)',
+    border: `1px solid ${tokens.aqua}`,
+    borderRadius: 10,
+    padding: 22,
+    display: 'grid',
+    gap: 10,
+    textAlign: 'center',
+    color: tokens.aqua,
+    boxShadow: '0 0 32px rgba(45, 226, 230, 0.24)'
+  },
+  guardIcon: {
+    fontSize: 46,
+    transform: 'rotate(90deg)'
+  },
+  identityPanel: {
+    border: `1px solid ${tokens.aqua}`,
+    borderRadius: 10,
+    padding: 20,
+    minHeight: 126,
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 18,
+    alignItems: 'center',
+    background:
+      'linear-gradient(135deg, rgba(45, 226, 230, 0.08), rgba(5, 14, 18, 0.92))',
+    boxShadow: '0 0 32px rgba(45, 226, 230, 0.14), inset 0 0 40px rgba(45, 226, 230, 0.04)'
+  },
+  brand: {
+    color: tokens.aqua,
+    fontSize: 'clamp(42px, 13vw, 62px)',
+    lineHeight: 0.9,
+    fontWeight: 800,
+    letterSpacing: '0.09em',
+    textShadow: '0 0 18px rgba(45, 226, 230, 0.55)'
+  },
+  subtitle: {
+    marginTop: 10,
+    color: tokens.aqua,
+    fontSize: 17,
+    letterSpacing: '0.04em'
+  },
+  nodeLine: {
+    marginTop: 7,
+    color: tokens.aqua,
+    fontSize: 13,
+    letterSpacing: '0.04em'
+  },
+  clockBox: {
+    flex: '0 0 auto',
+    minWidth: 118,
+    border: `1px solid ${tokens.aqua}`,
+    borderRadius: 7,
+    padding: '13px 10px',
+    display: 'grid',
+    gap: 10,
+    textAlign: 'right',
+    color: tokens.aqua,
+    background: 'rgba(5, 8, 10, 0.62)',
+    fontSize: 13
+  },
+  panel: {
+    border: `1px solid ${tokens.aqua}`,
+    borderRadius: 10,
+    padding: 18,
+    background: tokens.panel,
+    boxShadow: 'inset 0 0 28px rgba(45, 226, 230, 0.05)'
+  },
+  panelTitleRow: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 14,
+    marginBottom: 18,
+    borderBottom: `1px solid ${tokens.lineSoft}`,
+    paddingBottom: 12
+  },
+  panelTitle: {
+    margin: 0,
+    fontSize: 20,
+    letterSpacing: '0.06em',
+    fontWeight: 700
+  },
+  hatch: {
+    color: 'rgba(45, 226, 230, 0.26)',
+    letterSpacing: '0.18em',
+    overflow: 'hidden',
+    whiteSpace: 'nowrap'
+  },
+  label: {
+    display: 'block',
+    color: tokens.muted,
+    fontSize: 13,
+    letterSpacing: '0.08em',
+    margin: '17px 0 8px'
+  },
+  input: {
+    width: '100%',
+    padding: '14px 15px',
+    color: tokens.text,
+    background: 'rgba(2, 7, 10, 0.72)',
+    border: `1px solid ${tokens.lineSoft}`,
+    borderRadius: 7,
+    outline: 'none',
+    fontSize: 16,
+    boxShadow: 'inset 0 0 18px rgba(0, 0, 0, 0.28)'
+  },
+  textarea: {
+    resize: 'none',
+    minHeight: 106
+  },
+  primaryButton: {
+    width: '100%',
+    marginTop: 18,
+    padding: '16px 18px',
+    display: 'flex',
+    justifyContent: 'center',
+    gap: 28,
+    alignItems: 'center',
+    color: tokens.aqua,
+    background: 'linear-gradient(180deg, rgba(45, 226, 230, 0.12), rgba(45, 226, 230, 0.02))',
+    border: `1px solid ${tokens.aqua}`,
+    borderRadius: 7,
+    textTransform: 'uppercase',
+    letterSpacing: '0.11em',
+    fontWeight: 800,
+    fontSize: 18,
+    boxShadow: '0 0 20px rgba(45, 226, 230, 0.26), inset 0 0 24px rgba(45, 226, 230, 0.08)'
+  },
+  summaryPanel: {
+    border: `1px solid ${tokens.line}`,
+    borderRadius: 10,
+    padding: 14,
+    background: 'rgba(5, 14, 18, 0.74)'
+  },
+  summaryGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr 0.8fr',
+    gap: 10
+  },
+  metricBox: {
+    minHeight: 74,
+    padding: 10,
+    border: `1px solid ${tokens.lineSoft}`,
+    background: 'rgba(2, 7, 10, 0.45)',
+    display: 'grid',
+    alignContent: 'space-between'
+  },
+  waveBox: {
+    minHeight: 74,
+    display: 'grid',
+    placeItems: 'center',
+    color: tokens.aqua,
+    border: `1px solid ${tokens.lineSoft}`,
+    background: 'rgba(2, 7, 10, 0.45)'
+  },
+  waveSvg: {
+    width: '82%',
+    opacity: 0.95,
+    filter: 'drop-shadow(0 0 8px rgba(45, 226, 230, 0.38))'
+  },
+  commandGrid: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 14
+  },
+  commandCard: {
+    minHeight: 94,
+    padding: 14,
+    display: 'grid',
+    gridTemplateColumns: 'auto 1fr auto',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 8,
+    background: tokens.panelSoft,
+    textAlign: 'left'
+  },
+  magentaCard: {
+    color: tokens.magenta,
+    border: `1px solid ${tokens.magenta}`,
+    boxShadow: '0 0 18px rgba(255, 61, 141, 0.12)'
+  },
+  aquaCard: {
+    color: tokens.aqua,
+    border: `1px solid ${tokens.aqua}`,
+    boxShadow: '0 0 18px rgba(45, 226, 230, 0.12)'
+  },
+  commandIcon: {
+    fontSize: 28,
+    lineHeight: 1
+  },
+  systemButton: {
+    width: '100%',
+    minHeight: 86,
+    padding: 16,
+    display: 'grid',
+    gridTemplateColumns: 'auto 1fr auto',
+    alignItems: 'center',
+    gap: 14,
+    border: `1px solid ${tokens.yellow}`,
+    borderRadius: 8,
+    color: tokens.yellow,
+    background: 'rgba(15, 13, 2, 0.44)',
+    textAlign: 'left',
+    boxShadow: '0 0 18px rgba(255, 212, 0, 0.10)'
+  },
+  statusRail: {
+    border: `1px solid ${tokens.line}`,
+    borderRadius: 8,
+    padding: '12px 14px',
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 12,
+    color: tokens.green,
+    background: 'rgba(0, 18, 18, 0.42)',
+    fontSize: 12,
+    letterSpacing: '0.04em'
+  },
+  infoPanel: {
+    border: `1px solid ${tokens.lineSoft}`,
+    borderRadius: 10,
+    padding: 16,
+    background: 'rgba(5, 14, 18, 0.66)'
+  },
+  infoTitle: {
+    margin: 0,
+    color: tokens.aqua,
+    fontSize: 16,
+    letterSpacing: '0.08em'
+  },
+  infoCopy: {
+    margin: '10px 0 0',
+    color: tokens.text,
+    lineHeight: 1.55
+  },
+  latestLine: {
+    margin: '10px 0 0',
+    color: tokens.muted,
+    fontSize: 12,
+    lineHeight: 1.4
+  },
+  syncStatus: {
+    margin: '10px 0 0',
+    color: tokens.green,
+    fontSize: 12
+  },
+  modalOverlay: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 50,
+    padding: 'max(14px, env(safe-area-inset-top)) 14px max(14px, env(safe-area-inset-bottom))',
+    background: 'rgba(7, 9, 15, 0.86)',
+    backdropFilter: 'blur(10px)',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'stretch'
+  },
+  modalContent: {
+    position: 'relative',
+    width: 'min(520px, 100%)',
+    maxHeight: '100%',
+    overflowY: 'auto',
+    border: '1px solid',
+    borderRadius: 12,
+    padding: 18,
+    background: 'rgba(5, 7, 12, 0.96)'
+  },
+  closeButton: {
+    position: 'sticky',
+    top: 0,
+    float: 'right',
+    zIndex: 2,
+    width: 42,
+    height: 42,
+    border: '1px solid',
+    borderRadius: 8,
+    background: 'rgba(5, 7, 12, 0.94)',
+    fontSize: 30,
+    lineHeight: '34px'
+  },
+  modalHeader: {
+    paddingBottom: 18,
+    marginBottom: 16,
+    borderBottom: `1px solid ${tokens.lineSoft}`
+  },
+  modalTitle: {
+    margin: 0,
+    fontSize: 24,
+    letterSpacing: '0.08em'
+  },
+  modalSubtitle: {
+    margin: '4px 0 0',
+    color: tokens.text,
+    fontSize: 13,
+    letterSpacing: '0.06em'
+  },
+  emptyState: {
+    color: tokens.muted,
+    border: `1px dashed ${tokens.lineSoft}`,
+    borderRadius: 8,
+    padding: 18,
+    textAlign: 'center'
+  },
+  archiveGroup: {
+    marginBottom: 18
+  },
+  archiveGroupHeader: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    gap: 10,
+    color: tokens.magenta,
+    marginBottom: 10,
+    fontSize: 13,
+    letterSpacing: '0.06em'
+  },
+  archiveRecord: {
+    border: `1px solid ${tokens.lineSoft}`,
+    borderRadius: 8,
+    padding: 14,
+    marginBottom: 10,
+    background: 'rgba(5, 14, 18, 0.72)'
+  },
+  recordTime: {
+    color: tokens.aqua,
+    fontWeight: 800,
+    marginBottom: 8,
+    fontSize: 18
+  },
+  recordFood: {
+    lineHeight: 1.5,
+    marginBottom: 14
+  },
+  recordFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    color: tokens.green,
+    fontSize: 12
+  },
+  voidButton: {
+    color: tokens.magenta,
+    background: 'transparent',
+    border: `1px solid rgba(255, 61, 141, 0.48)`,
+    borderRadius: 6,
+    padding: '7px 9px',
+    fontSize: 11
+  },
+  systemAction: {
+    width: '100%',
+    minHeight: 64,
+    display: 'grid',
+    gridTemplateColumns: '34px 1fr auto',
+    gap: 12,
+    alignItems: 'center',
+    padding: '12px 10px',
+    color: tokens.text,
+    background: 'rgba(5, 14, 18, 0.72)',
+    border: `1px solid rgba(255, 212, 0, 0.24)`,
+    borderRadius: 6,
+    textAlign: 'left',
+    marginBottom: 8
+  },
+  systemActionIcon: {
+    fontSize: 24,
+    textAlign: 'center'
+  },
+  sheetIdBox: {
+    marginTop: 12,
+    border: `1px solid ${tokens.lineSoft}`,
+    borderRadius: 8,
+    padding: 12,
+    display: 'grid',
+    gap: 8,
+    color: tokens.muted,
+    wordBreak: 'break-all',
+    fontSize: 12
+  },
+  toast: {
+    position: 'fixed',
+    left: '50%',
+    bottom: 'max(18px, env(safe-area-inset-bottom))',
+    transform: 'translateX(-50%)',
+    zIndex: 70,
+    minWidth: 220,
+    maxWidth: 'calc(100vw - 32px)',
+    padding: '13px 18px',
+    textAlign: 'center',
+    color: tokens.green,
+    background: 'rgba(3, 8, 10, 0.96)',
+    border: `1px solid ${tokens.green}`,
+    borderRadius: 999,
+    boxShadow: '0 0 24px rgba(60, 245, 138, 0.22)',
+    letterSpacing: '0.08em',
+    fontSize: 13
+  }
 }
 
-const closeButton = {
-  position: 'sticky',
-  top: 0,
-  float: 'right',
-  zIndex: 10,
-  width: 36,
-  height: 36,
-  borderRadius: '50%',
-  border: 'none',
-  backgroundColor: '#eee',
-  color: '#333',
-  fontSize: 28,
-  lineHeight: '36px',
-  cursor: 'pointer'
-}
-
-const toastStyle = {
-  position: 'fixed',
-  bottom: 30,
-  left: '50%',
-  transform: 'translateX(-50%)',
-  backgroundColor: '#000',
-  color: '#fff',
-  padding: 10,
-  borderRadius: 20
-}
-
-const syncStatusStyle = {
-  textAlign: 'center',
-  fontSize: 14,
-  marginTop: 10
-}
-
-const sheetConnectedStyle = {
-  textAlign: 'center',
-  fontSize: 12,
-  color: '#555',
-  wordBreak: 'break-all'
-}
 
 export default App
