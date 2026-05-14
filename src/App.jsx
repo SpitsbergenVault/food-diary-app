@@ -286,6 +286,22 @@ function App() {
     lockPortrait()
   }, [])
 
+
+  useEffect(() => {
+    let viewportMeta = document.querySelector('meta[name="viewport"]')
+
+    if (!viewportMeta) {
+      viewportMeta = document.createElement('meta')
+      viewportMeta.setAttribute('name', 'viewport')
+      document.head.appendChild(viewportMeta)
+    }
+
+    viewportMeta.setAttribute(
+      'content',
+      'width=device-width, initial-scale=1, viewport-fit=cover'
+    )
+  }, [])
+
   const sortedEntries = useMemo(() => sortEntries(entries), [entries])
 
   const groupedEntries = useMemo(
@@ -808,20 +824,33 @@ const globalCss = `
   html,
   body,
   #root {
+    width: 100%;
     min-height: 100%;
     margin: 0;
     background: ${tokens.night};
+    overflow-x: hidden;
   }
 
   body {
-    overflow-x: hidden;
+    min-width: 0;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
 
   button,
   input,
   textarea,
   select {
+    min-width: 0;
+    max-width: 100%;
     font: inherit;
+  }
+
+  input,
+  textarea,
+  select {
+    -webkit-appearance: none;
+    appearance: none;
   }
 
   button {
@@ -835,7 +864,18 @@ const globalCss = `
   }
 
   select {
-    appearance: auto;
+    background-image: linear-gradient(45deg, transparent 50%, ${tokens.text} 50%), linear-gradient(135deg, ${tokens.text} 50%, transparent 50%);
+    background-position: calc(100% - 16px) 50%, calc(100% - 10px) 50%;
+    background-size: 6px 6px, 6px 6px;
+    background-repeat: no-repeat;
+    padding-right: 32px !important;
+  }
+
+
+  @media (max-width: 380px) {
+    .pana-landscape-guard + main {
+      gap: 10px !important;
+    }
   }
 
   @media (orientation: landscape) and (max-height: 520px) {
@@ -847,20 +887,22 @@ const globalCss = `
 
 const styles = {
   appShell: {
-    minHeight: '100vh',
+    width: '100%',
+    minWidth: 0,
+    minHeight: '100dvh',
     color: tokens.text,
     fontFamily:
       'IBM Plex Mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     background:
       'radial-gradient(circle at top left, rgba(45, 226, 230, 0.16), transparent 36%), radial-gradient(circle at bottom right, rgba(255, 61, 141, 0.12), transparent 34%), #07090f',
-    padding: 'max(14px, env(safe-area-inset-top)) 14px max(18px, env(safe-area-inset-bottom))'
+    padding: 'max(10px, env(safe-area-inset-top)) clamp(8px, 3vw, 14px) max(14px, env(safe-area-inset-bottom))'
   },
   mainTerminal: {
     width: '100%',
-    maxWidth: 520,
+    maxWidth: 'min(520px, 100%)',
     margin: '0 auto',
     display: 'grid',
-    gap: 14
+    gap: 'clamp(10px, 2.8vw, 14px)'
   },
   landscapeGuard: {
     display: 'none',
@@ -890,11 +932,11 @@ const styles = {
   identityPanel: {
     border: `1px solid ${tokens.aqua}`,
     borderRadius: 10,
-    padding: 20,
+    padding: 'clamp(14px, 4vw, 20px)',
     minHeight: 126,
     display: 'flex',
     justifyContent: 'space-between',
-    gap: 18,
+    gap: 'clamp(10px, 3vw, 18px)',
     alignItems: 'center',
     background:
       'linear-gradient(135deg, rgba(45, 226, 230, 0.08), rgba(5, 14, 18, 0.92))',
@@ -922,7 +964,8 @@ const styles = {
   },
   clockBox: {
     flex: '0 0 auto',
-    minWidth: 118,
+    minWidth: 0,
+    width: 'clamp(100px, 28vw, 118px)',
     border: `1px solid ${tokens.aqua}`,
     borderRadius: 7,
     padding: '13px 10px',
@@ -936,7 +979,7 @@ const styles = {
   panel: {
     border: `1px solid ${tokens.aqua}`,
     borderRadius: 10,
-    padding: 18,
+    padding: 'clamp(14px, 4vw, 18px)',
     background: tokens.panel,
     boxShadow: 'inset 0 0 28px rgba(45, 226, 230, 0.05)'
   },
@@ -951,7 +994,7 @@ const styles = {
   },
   panelTitle: {
     margin: 0,
-    fontSize: 20,
+    fontSize: 'clamp(17px, 5vw, 20px)',
     letterSpacing: '0.06em',
     fontWeight: 700
   },
@@ -978,15 +1021,19 @@ const styles = {
   dateTimeGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: 12,
+    columnGap: 'clamp(10px, 3vw, 14px)',
+    rowGap: 10,
     alignItems: 'end',
     marginTop: 17
   },
   fieldStack: {
+    width: '100%',
     minWidth: 0
   },
   input: {
     width: '100%',
+    minWidth: 0,
+    maxWidth: '100%',
     padding: '14px 15px',
     color: tokens.text,
     background: 'rgba(2, 7, 10, 0.72)',
@@ -997,10 +1044,14 @@ const styles = {
     boxShadow: 'inset 0 0 18px rgba(0, 0, 0, 0.28)'
   },
   compactInput: {
-    height: 54,
-    minHeight: 54,
-    padding: '12px 11px',
-    fontSize: 14
+    height: 'clamp(50px, 13vw, 54px)',
+    minHeight: 'clamp(50px, 13vw, 54px)',
+    padding: '10px clamp(8px, 2.8vw, 12px)',
+    fontSize: 'clamp(12px, 3.45vw, 14px)',
+    lineHeight: 1.15,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
   },
   textarea: {
     resize: 'none',
@@ -1021,13 +1072,13 @@ const styles = {
     textTransform: 'uppercase',
     letterSpacing: '0.11em',
     fontWeight: 800,
-    fontSize: 18,
+    fontSize: 'clamp(15px, 4.6vw, 18px)',
     boxShadow: '0 0 20px rgba(45, 226, 230, 0.26), inset 0 0 24px rgba(45, 226, 230, 0.08)'
   },
   summaryPanel: {
     border: `1px solid ${tokens.line}`,
     borderRadius: 10,
-    padding: 14,
+    padding: 'clamp(10px, 3vw, 14px)',
     background: 'rgba(5, 14, 18, 0.74)'
   },
   summaryGrid: {
@@ -1058,11 +1109,11 @@ const styles = {
   },
   commandGrid: {
     display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: 14
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr)',
+    gap: 'clamp(10px, 3vw, 14px)'
   },
   commandCard: {
-    minHeight: 94,
+    minHeight: 'clamp(82px, 22vw, 94px)',
     padding: 14,
     display: 'grid',
     gridTemplateColumns: 'auto 1fr auto',
@@ -1083,13 +1134,13 @@ const styles = {
     boxShadow: '0 0 18px rgba(45, 226, 230, 0.12)'
   },
   commandIcon: {
-    fontSize: 28,
+    fontSize: 'clamp(22px, 6vw, 28px)',
     lineHeight: 1
   },
   systemButton: {
     width: '100%',
-    minHeight: 86,
-    padding: 16,
+    minHeight: 'clamp(76px, 20vw, 86px)',
+    padding: 'clamp(12px, 3.5vw, 16px)',
     display: 'grid',
     gridTemplateColumns: 'auto 1fr auto',
     alignItems: 'center',
