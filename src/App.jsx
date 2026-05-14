@@ -534,32 +534,38 @@ function App() {
         <section style={styles.panel}>
           <PanelTitle title="REGISTER INTAKE EVENT" tone="aqua" />
 
-          <label style={styles.label} htmlFor="registry-date">
-            REGISTRY DATE
-          </label>
-          <input
-            id="registry-date"
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            style={styles.input}
-          />
+          <div style={styles.dateTimeGrid}>
+            <div style={styles.fieldStack}>
+              <label style={styles.compactLabel} htmlFor="registry-date">
+                DATE
+              </label>
+              <input
+                id="registry-date"
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                style={{ ...styles.input, ...styles.compactInput }}
+              />
+            </div>
 
-          <label style={styles.label} htmlFor="local-time">
-            LOCAL TIME
-          </label>
-          <select
-            id="local-time"
-            value={time}
-            onChange={e => setTime(e.target.value)}
-            style={styles.input}
-          >
-            {TIME_OPTIONS.map(hour => (
-              <option key={hour} value={hour}>
-                {hour}
-              </option>
-            ))}
-          </select>
+            <div style={styles.fieldStack}>
+              <label style={styles.compactLabel} htmlFor="local-time">
+                TIME
+              </label>
+              <select
+                id="local-time"
+                value={time}
+                onChange={e => setTime(e.target.value)}
+                style={{ ...styles.input, ...styles.compactInput }}
+              >
+                {TIME_OPTIONS.map(hour => (
+                  <option key={hour} value={hour}>
+                    {hour}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
 
           <label style={styles.label} htmlFor="intake-event">
             DESCRIBE INTAKE EVENT
@@ -962,6 +968,23 @@ const styles = {
     letterSpacing: '0.08em',
     margin: '17px 0 8px'
   },
+  compactLabel: {
+    display: 'block',
+    color: tokens.muted,
+    fontSize: 12,
+    letterSpacing: '0.1em',
+    margin: '0 0 8px'
+  },
+  dateTimeGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 12,
+    alignItems: 'end',
+    marginTop: 17
+  },
+  fieldStack: {
+    minWidth: 0
+  },
   input: {
     width: '100%',
     padding: '14px 15px',
@@ -972,6 +995,12 @@ const styles = {
     outline: 'none',
     fontSize: 16,
     boxShadow: 'inset 0 0 18px rgba(0, 0, 0, 0.28)'
+  },
+  compactInput: {
+    height: 54,
+    minHeight: 54,
+    padding: '12px 11px',
+    fontSize: 14
   },
   textarea: {
     resize: 'none',
