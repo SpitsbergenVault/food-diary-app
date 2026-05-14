@@ -536,8 +536,8 @@ function App() {
 
         <header style={styles.identityPanel}>
           <div>
-            <div style={styles.brand}>PANA</div>
-            <div style={styles.subtitle}>LOCAL INTAKE REGISTRY</div>
+            <div style={styles.brand}>¡PANA!</div>
+            <div style={styles.subtitle}>Pan-American Nutrition Authority</div>
             <div style={styles.nodeLine}>NIGHT TERMINAL // NODE ACTIVE</div>
           </div>
 
