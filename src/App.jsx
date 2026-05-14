@@ -536,7 +536,7 @@ function App() {
 
         <header style={styles.identityPanel}>
           <div>
-            <div style={styles.brand}>¡PANA!</div>
+            <div style={styles.brand}>PANA</div>
             <div style={styles.subtitle}>Pan-American Nutrition Authority</div>
             <div style={styles.nodeLine}>NIGHT TERMINAL // NODE ACTIVE</div>
           </div>
@@ -953,7 +953,7 @@ const styles = {
   subtitle: {
     marginTop: 10,
     color: tokens.aqua,
-    fontSize: 17,
+    fontSize: 14,
     letterSpacing: '0.04em'
   },
   nodeLine: {
