@@ -651,7 +651,7 @@ function App() {
         <button onClick={() => setShowSystem(true)} style={styles.systemButton}>
           <span style={styles.commandIcon}>⚙</span>
           <span>
-            <strong>SYSTEM OPERATIONS</strong>
+            <strong>SYSTEM OPERATIONS</strong><br>
             <small>BACKUPS, EXPORTS, SETTINGS</small>
           </span>
           <span aria-hidden="true">›</span>
