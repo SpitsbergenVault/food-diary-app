@@ -629,7 +629,7 @@ function App() {
           >
             <span style={styles.commandIcon}>▤</span>
             <span>
-              <strong>VIEW ARCHIVE</strong>
+              <strong>VIEW ARCHIVE </strong>
               <small>BROWSE INTAKE LOG</small>
             </span>
             <span aria-hidden="true">›</span>
@@ -641,7 +641,7 @@ function App() {
           >
             <span style={styles.commandIcon}>▦</span>
             <span>
-              <strong>SYNC TO GOOGLE SHEETS</strong>
+              <strong>SYNC TO GOOGLE SHEETS </strong>
               <small>{spreadsheetId ? 'EXTERNAL ARCHIVE READY' : 'CREATE ARCHIVE LINK'}</small>
             </span>
             <span aria-hidden="true">›</span>
@@ -651,7 +651,7 @@ function App() {
         <button onClick={() => setShowSystem(true)} style={styles.systemButton}>
           <span style={styles.commandIcon}>⚙</span>
           <span>
-            <strong>SYSTEM OPERATIONS</strong><br>
+            <strong>SYSTEM OPERATIONS</strong><br></br>
             <small>BACKUPS, EXPORTS, SETTINGS</small>
           </span>
           <span aria-hidden="true">›</span>
