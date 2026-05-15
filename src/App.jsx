@@ -64,10 +64,14 @@ function saveEntries(entries) {
   }
 }
 
+const AUTO_ARCHIVE_KEY = 'foodEntries_backup'
+const SNAPSHOT_ARCHIVE_KEY = 'foodEntries_snapshots'
+const MAX_AUTO_SNAPSHOTS = 10
+
 function saveBackup(entries) {
   try {
     localStorage.setItem(
-      'foodEntries_backup',
+      AUTO_ARCHIVE_KEY,
       JSON.stringify({
         timestamp: Date.now(),
         data: entries
@@ -76,6 +80,68 @@ function saveBackup(entries) {
   } catch (error) {
     console.error('Backup failed:', error)
   }
+}
+
+function loadSnapshots() {
+  try {
+    const saved = localStorage.getItem(SNAPSHOT_ARCHIVE_KEY)
+
+    if (!saved) return []
+
+    const parsed = JSON.parse(saved)
+
+    return Array.isArray(parsed) ? parsed : []
+  } catch (error) {
+    console.error('Failed to load snapshots:', error)
+    return []
+  }
+}
+
+function saveSnapshots(snapshots) {
+  try {
+    localStorage.setItem(
+      SNAPSHOT_ARCHIVE_KEY,
+      JSON.stringify(snapshots.slice(0, MAX_AUTO_SNAPSHOTS))
+    )
+  } catch (error) {
+    console.error('Failed to save snapshots:', error)
+  }
+}
+
+function saveSnapshot(entries, reason = 'AUTO SNAPSHOT') {
+  try {
+    if (!Array.isArray(entries)) return
+
+    const sortedEntries = sortEntries(entries)
+    const existingSnapshots = loadSnapshots()
+    const latestSnapshot = existingSnapshots[0]
+
+    if (
+      latestSnapshot &&
+      JSON.stringify(latestSnapshot.data) === JSON.stringify(sortedEntries)
+    ) {
+      return
+    }
+
+    const snapshot = {
+      id: crypto.randomUUID(),
+      timestamp: Date.now(),
+      reason,
+      data: sortedEntries
+    }
+
+    saveSnapshots([snapshot, ...existingSnapshots])
+  } catch (error) {
+    console.error('Snapshot failed:', error)
+  }
+}
+
+function removeSnapshot(snapshotId) {
+  const remainingSnapshots = loadSnapshots().filter(
+    snapshot => snapshot.id !== snapshotId
+  )
+
+  saveSnapshots(remainingSnapshots)
 }
 
 function convertTimeTo24Hour(timeString) {
@@ -116,6 +182,52 @@ function entriesToSheetValues(entries) {
     ['Date', 'Time', 'Food'],
     ...sortEntries(entries).map(entry => [entry.date, entry.time, entry.food])
   ]
+}
+
+function isValidDateValue(value) {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return false
+  }
+
+  const date = new Date(`${value}T00:00:00`)
+
+  return !Number.isNaN(date.getTime())
+}
+
+function normalizeImportedEntries(importedEntries) {
+  if (!Array.isArray(importedEntries)) {
+    throw new Error('Backup must be an array')
+  }
+
+  return importedEntries.map((entry, index) => {
+    if (!entry || typeof entry !== 'object') {
+      throw new Error(`Entry ${index + 1} is not valid`)
+    }
+
+    const food = typeof entry.food === 'string' ? entry.food.trim() : ''
+
+    if (!isValidDateValue(entry.date)) {
+      throw new Error(`Entry ${index + 1} has an invalid date`)
+    }
+
+    if (!TIME_OPTIONS.includes(entry.time)) {
+      throw new Error(`Entry ${index + 1} has an invalid time`)
+    }
+
+    if (!food) {
+      throw new Error(`Entry ${index + 1} is missing food text`)
+    }
+
+    return {
+      ...entry,
+      id: typeof entry.id === 'string' && entry.id ? entry.id : crypto.randomUUID(),
+      date: entry.date,
+      time: entry.time,
+      food,
+      createdAt:
+        typeof entry.createdAt === 'number' ? entry.createdAt : Date.now()
+    }
+  })
 }
 
 function requestGoogleAccessToken() {
@@ -255,12 +367,18 @@ function App() {
   const [spreadsheetId, setSpreadsheetId] = useState(getStoredSpreadsheetId)
   const [syncStatus, setSyncStatus] = useState('')
   const [clock, setClock] = useState(formatTimeNow())
+  const [editingEntryId, setEditingEntryId] = useState(null)
+  const [snapshotCount, setSnapshotCount] = useState(() => loadSnapshots().length)
+  const [editDate, setEditDate] = useState('')
+  const [editTime, setEditTime] = useState('')
+  const [editFood, setEditFood] = useState('')
 
   const fileInputRef = useRef(null)
 
   useEffect(() => {
     saveEntries(entries)
     saveBackup(entries)
+    setSnapshotCount(loadSnapshots().length)
   }, [entries])
 
   useEffect(() => {
@@ -345,12 +463,70 @@ function App() {
       createdAt: Date.now()
     }
 
+    saveSnapshot(entries, 'BEFORE ADD')
+    setSnapshotCount(loadSnapshots().length)
     setEntries(sortEntries([...entries, newEntry]))
     setFood('')
     showSystemMessage('ENTRY ARCHIVED')
   }
 
+  function startEditEntry(entry) {
+    setEditingEntryId(entry.id)
+    setEditDate(entry.date)
+    setEditTime(entry.time)
+    setEditFood(entry.food)
+  }
+
+  function cancelEditEntry() {
+    setEditingEntryId(null)
+    setEditDate('')
+    setEditTime('')
+    setEditFood('')
+  }
+
+  function saveEditedEntry(id) {
+    const trimmedFood = editFood.trim()
+
+    if (!trimmedFood) {
+      showSystemMessage('INVALID ENTRY FORMAT')
+      return
+    }
+
+    saveSnapshot(entries, 'BEFORE EDIT')
+    setSnapshotCount(loadSnapshots().length)
+
+    setEntries(
+      sortEntries(
+        entries.map(entry =>
+          entry.id === id
+            ? {
+                ...entry,
+                date: editDate,
+                time: editTime,
+                food: trimmedFood,
+                updatedAt: Date.now()
+              }
+            : entry
+        )
+      )
+    )
+
+    cancelEditEntry()
+    showSystemMessage('RECORD UPDATED')
+  }
+
   function deleteEntry(id) {
+    const entry = entries.find(item => item.id === id)
+    const label = entry?.food ? `\n\n${entry.time} / ${entry.food}` : ''
+
+    const shouldDelete = window.confirm(
+      `Void this intake record?${label}\n\nYou can restore the previous snapshot from System Operations.`
+    )
+
+    if (!shouldDelete) return
+
+    saveSnapshot(entries, 'BEFORE DELETE')
+    setSnapshotCount(loadSnapshots().length)
     setEntries(entries.filter(entry => entry.id !== id))
     showSystemMessage('RECORD VOIDED')
   }
@@ -400,18 +576,53 @@ function App() {
   }
 
   function disconnectGoogleSheets() {
+    const shouldForget = window.confirm(
+      'Forget this Google Sheet connection on this device?\n\nThis does not delete the Sheet and does not revoke Google account permissions.'
+    )
+
+    if (!shouldForget) return
+
     clearStoredSpreadsheetId()
     setSpreadsheetId(null)
-    setSyncStatus('EXTERNAL ARCHIVE DISCONNECTED')
-    showSystemMessage('SHEETS LINK REMOVED')
+    setSyncStatus('SHEET CONNECTION FORGOTTEN ON THIS DEVICE')
+    showSystemMessage('SHEET LINK FORGOTTEN')
+  }
+
+  function openGoogleSheet() {
+    if (!spreadsheetId) {
+      showSystemMessage('NO SHEET LINK FOUND')
+      return
+    }
+
+    window.open(
+      `https://docs.google.com/spreadsheets/d/${spreadsheetId}`,
+      '_blank',
+      'noopener,noreferrer'
+    )
   }
 
   function restoreLastBackup() {
     try {
-      const saved = localStorage.getItem('foodEntries_backup')
+      const snapshots = loadSnapshots()
+      const latestSnapshot = snapshots[0]
+
+      if (latestSnapshot?.data && Array.isArray(latestSnapshot.data)) {
+        const sorted = sortEntries(latestSnapshot.data)
+
+        removeSnapshot(latestSnapshot.id)
+        setSnapshotCount(loadSnapshots().length)
+        setEntries(sorted)
+        saveEntries(sorted)
+        saveBackup(sorted)
+        cancelEditEntry()
+        showSystemMessage('PREVIOUS SNAPSHOT RESTORED')
+        return
+      }
+
+      const saved = localStorage.getItem(AUTO_ARCHIVE_KEY)
 
       if (!saved) {
-        showSystemMessage('NO BACKUP FOUND')
+        showSystemMessage('NO SNAPSHOT FOUND')
         return
       }
 
@@ -426,6 +637,8 @@ function App() {
 
       setEntries(sorted)
       saveEntries(sorted)
+      saveBackup(sorted)
+      cancelEditEntry()
       showSystemMessage('AUTO-ARCHIVE RESTORED')
     } catch (error) {
       showSystemMessage('RESTORE FAILED')
@@ -490,17 +703,16 @@ function App() {
       try {
         const parsed = JSON.parse(e.target.result)
 
-        if (!Array.isArray(parsed)) {
-          showSystemMessage('INVALID BACKUP FILE')
-          return
-        }
+        const normalizedEntries = normalizeImportedEntries(parsed)
+        const sorted = sortEntries(normalizedEntries)
 
-        const sorted = sortEntries(parsed)
-
+        saveSnapshot(entries, 'BEFORE IMPORT')
+        setSnapshotCount(loadSnapshots().length)
         setEntries(sorted)
         saveEntries(sorted)
         showSystemMessage('REGISTRY BACKUP IMPORTED')
       } catch (error) {
+        console.error(error)
         showSystemMessage('BACKUP IMPORT FAILED')
       }
     }
@@ -641,7 +853,7 @@ function App() {
           >
             <span style={styles.commandIcon}>▦</span>
             <span>
-              <strong>SYNC TO GOOGLE SHEETS </strong>
+              <strong>SYNC TO SHEETS </strong>
               <small>{spreadsheetId ? 'EXTERNAL ARCHIVE READY' : 'CREATE ARCHIVE LINK'}</small>
             </span>
             <span aria-hidden="true">›</span>
@@ -688,18 +900,86 @@ function App() {
                   <span>{items.length.toString().padStart(2, '0')} EVENTS</span>
                 </div>
 
-                {items.map(entry => (
-                  <article key={entry.id} style={styles.archiveRecord}>
-                    <div style={styles.recordTime}>{entry.time}</div>
-                    <div style={styles.recordFood}>{entry.food}</div>
-                    <div style={styles.recordFooter}>
-                      <span>STATUS: ARCHIVED</span>
-                      <button onClick={() => deleteEntry(entry.id)} style={styles.voidButton}>
-                        VOID RECORD
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                {items.map(entry => {
+                  const isEditing = editingEntryId === entry.id
+
+                  return (
+                    <article key={entry.id} style={styles.archiveRecord}>
+                      {isEditing ? (
+                        <div style={styles.editStack}>
+                          <div style={styles.editGrid}>
+                            <div style={styles.fieldStack}>
+                              <label style={styles.compactLabel} htmlFor={`edit-date-${entry.id}`}>
+                                DATE
+                              </label>
+                              <input
+                                id={`edit-date-${entry.id}`}
+                                type="date"
+                                value={editDate}
+                                onChange={e => setEditDate(e.target.value)}
+                                style={{ ...styles.input, ...styles.compactInput }}
+                              />
+                            </div>
+
+                            <div style={styles.fieldStack}>
+                              <label style={styles.compactLabel} htmlFor={`edit-time-${entry.id}`}>
+                                TIME
+                              </label>
+                              <select
+                                id={`edit-time-${entry.id}`}
+                                value={editTime}
+                                onChange={e => setEditTime(e.target.value)}
+                                style={{ ...styles.input, ...styles.compactInput }}
+                              >
+                                {TIME_OPTIONS.map(hour => (
+                                  <option key={hour} value={hour}>
+                                    {hour}
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+                          </div>
+
+                          <label style={styles.compactLabel} htmlFor={`edit-food-${entry.id}`}>
+                            INTAKE EVENT
+                          </label>
+                          <textarea
+                            id={`edit-food-${entry.id}`}
+                            value={editFood}
+                            onChange={e => setEditFood(e.target.value)}
+                            rows={3}
+                            style={{ ...styles.input, ...styles.editTextarea }}
+                          />
+
+                          <div style={styles.editButtonRow}>
+                            <button onClick={() => saveEditedEntry(entry.id)} style={styles.saveEditButton}>
+                              SAVE CHANGES
+                            </button>
+                            <button onClick={cancelEditEntry} style={styles.cancelEditButton}>
+                              CANCEL
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div style={styles.recordTime}>{entry.time}</div>
+                          <div style={styles.recordFood}>{entry.food}</div>
+                          <div style={styles.recordFooter}>
+                            <span>STATUS: ARCHIVED</span>
+                            <div style={styles.recordActions}>
+                              <button onClick={() => startEditEntry(entry)} style={styles.editButton}>
+                                EDIT RECORD
+                              </button>
+                              <button onClick={() => deleteEntry(entry.id)} style={styles.voidButton}>
+                                VOID RECORD
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </article>
+                  )
+                })}
               </section>
             ))
           )}
@@ -708,19 +988,27 @@ function App() {
 
       {showSystem && (
         <Modal title="SYSTEM OPERATIONS" subtitle="MAINTENANCE & DATA MANAGEMENT" tone="yellow" onClose={() => setShowSystem(false)}>
-          <SystemAction title="EXPORT ARCHIVE CSV" description="Download intake data" onClick={exportToCSV} />
-          <SystemAction title="EXPORT REGISTRY BACKUP" description="Create full data backup" onClick={exportBackup} />
-          <SystemAction title="IMPORT REGISTRY BACKUP" description="Restore from backup file" onClick={triggerImport} />
-          <SystemAction title="RESTORE LAST AUTO-ARCHIVE" description="Restore most recent local backup" onClick={restoreLastBackup} />
+          <SystemAction title="EXPORT ARCHIVE CSV " description="Download intake data" onClick={exportToCSV} />
+          <SystemAction title="EXPORT REGISTRY BACKUP " description="Create full data backup" onClick={exportBackup} />
+          <SystemAction title="IMPORT REGISTRY BACKUP " description="Restore from backup file" onClick={triggerImport} />
+          <SystemAction title="RESTORE PREVIOUS SNAPSHOT " description="Undo latest data change" onClick={restoreLastBackup} />
           <SystemAction
-            title={spreadsheetId ? 'CREATE NEW GOOGLE SHEET' : 'CONNECT GOOGLE SHEETS'}
+            title={spreadsheetId ? 'CREATE NEW GOOGLE SHEET ' : 'CONNECT GOOGLE SHEETS '}
             description={spreadsheetId ? 'Generate and connect new sheet' : 'Create external archive'}
             onClick={connectGoogleSheets}
           />
-          <SystemAction title="SYNC TO GOOGLE SHEETS" description="Push latest data to connected sheet" onClick={syncToGoogleSheets} />
+          <SystemAction title="SYNC TO GOOGLE SHEETS " description="Push latest data to connected sheet" onClick={syncToGoogleSheets} />
           {spreadsheetId && (
-            <SystemAction title="DISCONNECT GOOGLE SHEETS" description="Remove current sheet connection" onClick={disconnectGoogleSheets} danger />
+            <SystemAction title="OPEN GOOGLE SHEET " description="View connected spreadsheet" onClick={openGoogleSheet} />
           )}
+          {spreadsheetId && (
+            <SystemAction title="FORGET SHEET CONNECTION " description="Remove saved Sheet ID from this device only" onClick={disconnectGoogleSheets} danger />
+          )}
+
+          <div style={styles.snapshotInfoBox}>
+            <span>RESTORE SNAPSHOTS AVAILABLE</span>
+            <strong>{snapshotCount.toString().padStart(2, '0')}</strong>
+          </div>
 
           {spreadsheetId && (
             <div style={styles.sheetIdBox}>
@@ -1286,6 +1574,56 @@ const styles = {
     color: tokens.green,
     fontSize: 12
   },
+  recordActions: {
+    display: 'flex',
+    gap: 8,
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end'
+  },
+  editStack: {
+    display: 'grid',
+    gap: 12
+  },
+  editGrid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+    gap: 10
+  },
+  editTextarea: {
+    resize: 'vertical',
+    minHeight: 84
+  },
+  editButtonRow: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: 10
+  },
+  editButton: {
+    color: tokens.aqua,
+    background: 'transparent',
+    border: `1px solid rgba(45, 226, 230, 0.48)`,
+    borderRadius: 6,
+    padding: '7px 9px',
+    fontSize: 11
+  },
+  saveEditButton: {
+    color: tokens.green,
+    background: 'rgba(60, 245, 138, 0.08)',
+    border: `1px solid rgba(60, 245, 138, 0.55)`,
+    borderRadius: 6,
+    padding: '10px 9px',
+    fontSize: 12,
+    fontWeight: 800
+  },
+  cancelEditButton: {
+    color: tokens.muted,
+    background: 'transparent',
+    border: `1px solid ${tokens.lineSoft}`,
+    borderRadius: 6,
+    padding: '10px 9px',
+    fontSize: 12,
+    fontWeight: 800
+  },
   voidButton: {
     color: tokens.magenta,
     background: 'transparent',
@@ -1312,6 +1650,19 @@ const styles = {
   systemActionIcon: {
     fontSize: 24,
     textAlign: 'center'
+  },
+  snapshotInfoBox: {
+    marginTop: 12,
+    border: `1px solid ${tokens.lineSoft}`,
+    borderRadius: 8,
+    padding: 12,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 12,
+    color: tokens.yellow,
+    fontSize: 12,
+    letterSpacing: '0.06em'
   },
   sheetIdBox: {
     marginTop: 12,
